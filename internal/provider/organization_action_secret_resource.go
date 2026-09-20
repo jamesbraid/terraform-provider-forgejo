@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -25,8 +26,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &organizationActionSecretResource{}
-	_ resource.ResourceWithConfigure = &organizationActionSecretResource{}
+	_ resource.Resource                = &organizationActionSecretResource{}
+	_ resource.ResourceWithConfigure   = &organizationActionSecretResource{}
+	_ resource.ResourceWithImportState = &organizationActionSecretResource{}
 )
 
 // organizationActionSecretResource is the resource implementation.
@@ -41,6 +43,8 @@ type organizationActionSecretResourceModel struct {
 	OrganizationID types.Int64  `tfsdk:"organization_id"`
 	Name           types.String `tfsdk:"name"`
 	Data           types.String `tfsdk:"data"`
+	DataWO         types.String `tfsdk:"data_wo"`
+	DataWOVersion  types.Int64  `tfsdk:"data_wo_version"`
 	CreatedAt      types.String `tfsdk:"created_at"`
 }
 
@@ -57,13 +61,25 @@ func (m *organizationActionSecretResourceModel) from(s *forgejo.Secret) {
 }
 
 // to is a helper function to save Terraform data model into an API struct.
-func (m *organizationActionSecretResourceModel) to(o *forgejo.CreateSecretOption) {
+func (m *organizationActionSecretResourceModel) to(o *forgejo.CreateSecretOption, secret string) {
 	if o == nil {
 		return
 	}
 
 	o.Name = m.Name.ValueString()
-	o.Data = m.Data.ValueString()
+	o.Data = secret
+}
+
+func organizationActionSecretData(ctx context.Context, config tfsdk.Config, data organizationActionSecretResourceModel) (string, diag.Diagnostics) {
+	var dataWO types.String
+	diags := config.GetAttribute(ctx, path.Root("data_wo"), &dataWO)
+	if diags.HasError() || dataWO.IsUnknown() {
+		return "", diags
+	}
+	if !dataWO.IsNull() {
+		return dataWO.ValueString(), diags
+	}
+	return data.Data.ValueString(), diags
 }
 
 // Metadata returns the resource type name.
@@ -116,10 +132,29 @@ func (r *organizationActionSecretResource) Schema(_ context.Context, _ resource.
 				},
 			},
 			"data": schema.StringAttribute{
-				// Write-only attribute
-				Description: "Data of the secret.",
-				Required:    true,
+				Description: "Data of the secret. This legacy attribute stores the value in state; prefer data_wo.",
+				Optional:    true,
 				Sensitive:   true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(path.Expressions{path.MatchRoot("data_wo")}...),
+				},
+			},
+			"data_wo": schema.StringAttribute{
+				Description: "Write-only data of the secret. Set data_wo_version to trigger updates.",
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(path.Expressions{path.MatchRoot("data")}...),
+					stringvalidator.AlsoRequires(path.Expressions{path.MatchRoot("data_wo_version")}...),
+				},
+			},
+			"data_wo_version": schema.Int64Attribute{
+				Description: "Version of data_wo. Change this value to update the secret.",
+				Optional:    true,
+				Validators: []validator.Int64{
+					int64validator.AlsoRequires(path.Expressions{path.MatchRoot("data_wo")}...),
+				},
 			},
 			"created_at": schema.StringAttribute{
 				Description: "Time at which the secret was created.",
@@ -187,15 +222,21 @@ func (r *organizationActionSecretResource) Create(ctx context.Context, req resou
 		data.OrganizationID = types.Int64Value(0)
 	}
 
+	secretData, diags := organizationActionSecretData(ctx, req.Config, data)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	tflog.Info(ctx, "Create organization action secret", map[string]any{
 		"organization": data.Organization.ValueString(),
 		"name":         data.Name.ValueString(),
-		"data":         strings.Repeat("*", len(data.Data.ValueString())),
+		"data":         strings.Repeat("*", len(secretData)),
 	})
 
 	// Generate API request body from plan
 	opts := forgejo.CreateSecretOption{}
-	data.to(&opts)
+	data.to(&opts, secretData)
 
 	// Validate API request body
 	err := opts.Validate()
@@ -315,15 +356,21 @@ func (r *organizationActionSecretResource) Update(ctx context.Context, req resou
 		return
 	}
 
+	secretData, diags := organizationActionSecretData(ctx, req.Config, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	tflog.Info(ctx, "Update organization action secret", map[string]any{
 		"organization": plan.Organization.ValueString(),
 		"name":         plan.Name.ValueString(),
-		"data":         strings.Repeat("*", len(plan.Data.ValueString())),
+		"data":         strings.Repeat("*", len(secretData)),
 	})
 
 	// Generate API request body from plan
 	opts := forgejo.CreateSecretOption{}
-	plan.to(&opts)
+	plan.to(&opts, secretData)
 
 	// Validate API request body
 	err := opts.Validate()
@@ -438,6 +485,28 @@ func (r *organizationActionSecretResource) Delete(ctx context.Context, req resou
 // NewOrganizationActionSecretResource is a helper function to simplify the provider implementation.
 func NewOrganizationActionSecretResource() resource.Resource {
 	return &organizationActionSecretResource{}
+}
+
+// ImportState reads an existing resource and adds it to Terraform state on success.
+func (r *organizationActionSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	defer un(trace(ctx, "Import organization action secret resource"))
+
+	parts := strings.Split(req.ID, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'organization/name', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	state := organizationActionSecretResourceModel{
+		Organization:   types.StringValue(parts[0]),
+		OrganizationID: types.Int64Value(0),
+		Name:           types.StringValue(parts[1]),
+	}
+	diags := resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
 }
 
 // getSecret returns the secret with the given name from the organization.

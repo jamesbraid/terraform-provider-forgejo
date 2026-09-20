@@ -46,11 +46,13 @@ resource "forgejo_organization_action_secret" "this" {
 
 ### Required
 
-- `data` (String, Sensitive) Data of the secret.
 - `name` (String) Name of the secret. Changing this forces a new resource to be created.
 
 ### Optional
 
+- `data` (String, Sensitive) Data of the secret. This legacy attribute stores the value in state; prefer data_wo.
+- `data_wo` (String, Sensitive) Write-only data of the secret. Set data_wo_version to trigger updates.
+- `data_wo_version` (Number) Version of data_wo. Change this value to update the secret.
 - `organization` (String) Name of the owning organization. Changing this forces a new resource to be created. **Note**: One of `organization` or `organization_id` must be specified.
 - `organization_id` (Number) Numeric identifier of the owning organization. Changing this forces a new resource to be created. **Note**: One of `organization` or `organization_id` must be specified.
 

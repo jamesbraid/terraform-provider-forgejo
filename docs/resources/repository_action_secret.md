@@ -43,9 +43,14 @@ resource "forgejo_repository_action_secret" "this" {
 
 ### Required
 
-- `data` (String, Sensitive) Data of the secret.
 - `name` (String) Name of the secret. Changing this forces a new resource to be created.
 - `repository_id` (Number) Numeric identifier of the repository. Changing this forces a new resource to be created.
+
+### Optional
+
+- `data` (String, Sensitive) Data of the secret. This legacy attribute stores the value in state; prefer data_wo.
+- `data_wo` (String, Sensitive) Write-only data of the secret. Set data_wo_version to trigger updates.
+- `data_wo_version` (Number) Version of data_wo. Change this value to update the secret.
 
 ### Read-Only
 

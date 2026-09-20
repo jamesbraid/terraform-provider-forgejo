@@ -2151,6 +2151,38 @@ import {
 	})
 }
 
+func TestAccRepositoryImportPreservesOmittedFields(t *testing.T) {
+	const configured = providerConfig + `
+resource "forgejo_repository" "test" {
+	name        = "test_repo_import_preserves_omitted"
+	description = "keep this description"
+	private     = true
+	has_actions = false
+}`
+	const minimal = providerConfig + `
+resource "forgejo_repository" "test" {
+	name = "test_repo_import_preserves_omitted"
+}`
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: configured},
+			{
+				ResourceName:      "forgejo_repository.test",
+				ImportState:       true,
+				ImportStateId:     forgejoTestUser + "/test_repo_import_preserves_omitted",
+				ImportStateVerify: true,
+			},
+			{
+				Config:   minimal,
+				PlanOnly: true,
+			},
+		},
+	})
+}
+
 // Regression test for issue #169: updating an archived repository must not
 // send an empty wiki_branch.
 func TestAccRepositoryArchivedWikiBranch(t *testing.T) {

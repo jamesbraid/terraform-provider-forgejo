@@ -206,9 +206,13 @@ func (m *repositoryResourceModel) to(o *forgejo.EditRepoOption) {
 	}
 
 	o.Name = m.Name.ValueStringPointer()
-	o.Description = m.Description.ValueStringPointer()
+	if !m.Description.IsUnknown() {
+		o.Description = m.Description.ValueStringPointer()
+	}
 	o.Website = m.Website.ValueStringPointer()
-	o.Private = m.Private.ValueBoolPointer()
+	if !m.Private.IsUnknown() {
+		o.Private = m.Private.ValueBoolPointer()
+	}
 	o.Template = m.Template.ValueBoolPointer()
 	o.HasIssues = m.HasIssues.ValueBoolPointer()
 	o.HasWiki = m.HasWiki.ValueBoolPointer()
@@ -217,7 +221,9 @@ func (m *repositoryResourceModel) to(o *forgejo.EditRepoOption) {
 	o.HasProjects = m.HasProjects.ValueBoolPointer()
 	o.HasReleases = m.HasReleases.ValueBoolPointer()
 	o.HasPackages = m.HasPackages.ValueBoolPointer()
-	o.HasActions = m.HasActions.ValueBoolPointer()
+	if !m.HasActions.IsUnknown() {
+		o.HasActions = m.HasActions.ValueBoolPointer()
+	}
 	o.IgnoreWhitespaceConflicts = m.IgnoreWhitespaceConflicts.ValueBoolPointer()
 	o.AllowMerge = m.AllowMerge.ValueBoolPointer()
 	o.AllowRebase = m.AllowRebase.ValueBoolPointer()
@@ -523,7 +529,6 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Description of the repository.",
 				Optional:    true,
 				Computed:    true,
-				Default:     stringdefault.StaticString(""),
 			},
 			"empty": schema.BoolAttribute{
 				Description: "Is the repository empty?",
@@ -533,7 +538,6 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Is the repository private?",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 			},
 			"fork": schema.BoolAttribute{
 				Description: "Is the repository a fork?",
@@ -795,7 +799,6 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Are integrated CI/CD pipelines enabled?",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(true),
 			},
 			"ignore_whitespace_conflicts": schema.BoolAttribute{
 				Description: "Are whitespace conflicts ignored? **Note**: This setting is only effective if `has_pull_requests` is `true`.",

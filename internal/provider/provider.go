@@ -33,6 +33,7 @@ type forgejoProviderModel struct {
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
 	ApiToken types.String `tfsdk:"api_token"`
+	Sudo     types.String `tfsdk:"sudo"`
 }
 
 // Metadata returns the provider type name.
@@ -67,6 +68,10 @@ for detailed usage examples and troubleshooting information.`,
 				Description: "Token for Forgejo API. May also be provided via FORGEJO_API_TOKEN environment variable.",
 				Optional:    true,
 				Sensitive:   true,
+			},
+			"sudo": schema.StringAttribute{
+				Description: "Username to impersonate with Forgejo's Sudo header. May also be provided via FORGEJO_SUDO environment variable.",
+				Optional:    true,
 			},
 		},
 	}
@@ -122,6 +127,15 @@ func (p *forgejoProvider) Configure(ctx context.Context, req provider.ConfigureR
 		)
 	}
 
+	if config.Sudo.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("sudo"),
+			"Unknown Forgejo sudo username",
+			"The provider cannot create the Forgejo API client as there is an unknown configuration value for the Forgejo sudo username. "+
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the FORGEJO_SUDO environment variable.",
+		)
+	}
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -133,6 +147,7 @@ func (p *forgejoProvider) Configure(ctx context.Context, req provider.ConfigureR
 	username := os.Getenv("FORGEJO_USERNAME")
 	password := os.Getenv("FORGEJO_PASSWORD")
 	token := os.Getenv("FORGEJO_API_TOKEN")
+	sudo := os.Getenv("FORGEJO_SUDO")
 
 	if !config.Host.IsNull() {
 		host = config.Host.ValueString()
@@ -148,6 +163,10 @@ func (p *forgejoProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	if !config.ApiToken.IsNull() {
 		token = config.ApiToken.ValueString()
+	}
+
+	if !config.Sudo.IsNull() {
+		sudo = config.Sudo.ValueString()
 	}
 
 	// If any of the expected configurations are missing, return
@@ -208,17 +227,19 @@ func (p *forgejoProvider) Configure(ctx context.Context, req provider.ConfigureR
 			"forgejo_host":     host,
 			"forgejo_username": username,
 			"forgejo_password": strings.Repeat("*", len(password)),
+			"forgejo_sudo":     sudo,
 		})
 
-		client, err = forgejo.NewClient(host, forgejo.SetBasicAuth(username, password))
+		client, err = forgejo.NewClient(host, forgejo.SetBasicAuth(username, password), forgejo.SetSudo(sudo))
 	}
 	if token != "" {
 		tflog.Info(ctx, "Create Forgejo API client", map[string]any{
 			"forgejo_host":      host,
 			"forgejo_api_token": strings.Repeat("*", len(token)),
+			"forgejo_sudo":      sudo,
 		})
 
-		client, err = forgejo.NewClient(host, forgejo.SetToken(token))
+		client, err = forgejo.NewClient(host, forgejo.SetToken(token), forgejo.SetSudo(sudo))
 	}
 	if err != nil {
 		resp.Diagnostics.AddError(

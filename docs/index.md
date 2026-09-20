@@ -70,4 +70,5 @@ resource "forgejo_repository" "example_org" {
 - `api_token` (String, Sensitive) Token for Forgejo API. May also be provided via FORGEJO_API_TOKEN environment variable.
 - `host` (String) URI for Forgejo API. May also be provided via FORGEJO_HOST environment variable.
 - `password` (String, Sensitive) Password for Forgejo API. May also be provided via FORGEJO_PASSWORD environment variable.
+- `sudo` (String) Username to impersonate with Forgejo's Sudo header. May also be provided via FORGEJO_SUDO environment variable.
 - `username` (String) Username for Forgejo API. May also be provided via FORGEJO_USERNAME environment variable.

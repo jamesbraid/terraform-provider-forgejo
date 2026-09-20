@@ -91,6 +91,19 @@ resource "forgejo_user" "duplicate" {
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"password"},
 			},
+			// Imported users do not require their existing password in configuration.
+			{
+				Config: providerConfig + `
+resource "forgejo_user" "test" {
+	login = "tftest"
+	email = "tftest@localhost.localdomain"
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectEmptyPlan(),
+					},
+				},
+			},
 			// Recreate and Read testing
 			{
 				Config: providerConfig + `

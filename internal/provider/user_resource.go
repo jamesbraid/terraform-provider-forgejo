@@ -289,9 +289,13 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			},
 			"password": schema.StringAttribute{
 				// Write-only attribute
-				Description: "Password of the user.",
-				Required:    true,
+				Description: "Password of the user. Required when creating a user and optional when importing one.",
+				Optional:    true,
+				Computed:    true,
 				Sensitive:   true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"must_change_password": schema.BoolAttribute{
 				// Write-only attribute
@@ -382,6 +386,13 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 	diags := req.Plan.Get(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.Password.IsNull() || data.Password.IsUnknown() || data.Password.ValueString() == "" {
+		resp.Diagnostics.AddError(
+			"Missing user password",
+			"The password attribute is required when creating a Forgejo user.",
+		)
 		return
 	}
 

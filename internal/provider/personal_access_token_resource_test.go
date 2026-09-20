@@ -1,14 +1,18 @@
 package provider_test
 
 import (
+	"os"
 	"regexp"
+	"slices"
 	"testing"
 
+	"codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccPersonalAccessTokenResource(t *testing.T) {
@@ -156,6 +160,49 @@ resource "forgejo_personal_access_token" "test" {
 				ImportStateId:           "test_user/tftest1",
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"token"},
+			},
+			// Deleting the token outside Terraform removes it from state and
+			// recreates it instead of making every subsequent refresh fail.
+			{
+				PreConfig: func() {
+					client, err := forgejo.NewClient(
+						forgejoTestHost,
+						forgejo.SetBasicAuth(
+							os.Getenv("FORGEJO_USERNAME"),
+							os.Getenv("FORGEJO_PASSWORD"),
+						),
+					)
+					require.NoError(t, err)
+					tokens, _, err := client.ListAccessTokens("test_user", forgejo.ListAccessTokensOptions{})
+					require.NoError(t, err)
+					idx := slices.IndexFunc(tokens, func(token *forgejo.AccessToken) bool {
+						return token.Name == "tftest1"
+					})
+					require.NotEqual(t, -1, idx)
+					_, err = client.DeleteAccessToken("test_user", tokens[idx].ID)
+					require.NoError(t, err)
+				},
+				Config: providerConfig + providerBasicAuthConfig + `
+resource "forgejo_user" "test" {
+	login    = "test_user"
+	password = "password"
+	email    = "test_user@example.com"
+}
+resource "forgejo_personal_access_token" "test" {
+	provider = forgejo.basicAuth
+
+	user   = forgejo_user.test.login
+	name   = "tftest1"
+	scopes = [
+		"read:organization",
+		"read:repository"
+	]
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("forgejo_personal_access_token.test", plancheck.ResourceActionCreate),
+					},
+				},
 			},
 		},
 	})

@@ -306,7 +306,7 @@ func (r *personalAccessTokenResource) Read(ctx context.Context, req resource.Rea
 	}
 
 	// Use Forgejo client to get personal access token
-	token, diags := getPersonalAccessToken(
+	token, found, diags := getPersonalAccessToken(
 		ctx,
 		r.client,
 		data.User.ValueString(),
@@ -314,6 +314,10 @@ func (r *personalAccessTokenResource) Read(ctx context.Context, req resource.Rea
 	)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -363,6 +367,9 @@ func (r *personalAccessTokenResource) Delete(ctx context.Context, req resource.D
 		data.ID.ValueInt64(),
 	)
 	if err == nil {
+		return
+	}
+	if res != nil && res.StatusCode == 404 {
 		return
 	}
 
@@ -416,9 +423,20 @@ func (r *personalAccessTokenResource) ImportState(ctx context.Context, req resou
 		return
 	}
 
-	token, diags := getPersonalAccessToken(ctx, r.client, parts[0], parts[1])
+	token, found, diags := getPersonalAccessToken(ctx, r.client, parts[0], parts[1])
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError(
+			"Unable to find personal access token by name",
+			fmt.Sprintf(
+				"Personal access token with user '%s' and name '%s' not found",
+				parts[0],
+				parts[1],
+			),
+		)
 		return
 	}
 

@@ -109,9 +109,20 @@ func (d *personalAccessTokenDataSource) Read(ctx context.Context, req datasource
 	}
 
 	// Use Forgejo client to get personal access token
-	token, diags := getPersonalAccessToken(ctx, d.client, data.User.ValueString(), data.Name.ValueString())
+	token, found, diags := getPersonalAccessToken(ctx, d.client, data.User.ValueString(), data.Name.ValueString())
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError(
+			"Unable to find personal access token by name",
+			fmt.Sprintf(
+				"Personal access token with user '%s' and name '%s' not found",
+				data.User.ValueString(),
+				data.Name.ValueString(),
+			),
+		)
 		return
 	}
 
@@ -134,7 +145,7 @@ func getPersonalAccessToken(
 	ctx context.Context,
 	client *forgejo.Client,
 	user string,
-	tokenName string) (*forgejo.AccessToken, diag.Diagnostics) {
+	tokenName string) (*forgejo.AccessToken, bool, diag.Diagnostics) {
 
 	var diags diag.Diagnostics
 
@@ -183,7 +194,7 @@ func getPersonalAccessToken(
 		}
 		diags.AddError("Unable to list personal access tokens", msg)
 
-		return nil, diags
+		return nil, false, diags
 	}
 
 	// Search for personal access token with given name
@@ -191,18 +202,9 @@ func getPersonalAccessToken(
 		return strings.EqualFold(t.Name, tokenName)
 	})
 	if idx == -1 {
-		diags.AddError(
-			"Unable to find personal access token by name",
-			fmt.Sprintf(
-				"Personal access token with user '%s' and name '%s' not found",
-				user,
-				tokenName,
-			),
-		)
-
-		return nil, diags
+		return nil, false, diags
 	}
-	return tokens[idx], diags
+	return tokens[idx], true, diags
 }
 
 // NewPersonalAccessTokenDataSource is a helper function to simplify the provider implementation.

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -22,8 +23,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &personalAccessTokenResource{}
-	_ resource.ResourceWithConfigure = &personalAccessTokenResource{}
+	_ resource.Resource                = &personalAccessTokenResource{}
+	_ resource.ResourceWithConfigure   = &personalAccessTokenResource{}
+	_ resource.ResourceWithImportState = &personalAccessTokenResource{}
 )
 
 // personalAccessTokenResource is the resource implementation.
@@ -398,6 +400,40 @@ func (r *personalAccessTokenResource) Delete(ctx context.Context, req resource.D
 		}
 	}
 	resp.Diagnostics.AddError("Unable to delete personal access token", msg)
+}
+
+// ImportState reads an existing token's metadata into state. Forgejo never
+// returns the token value after creation, so imported tokens leave it null.
+func (r *personalAccessTokenResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	defer un(trace(ctx, "Import personal access token resource"))
+
+	parts := strings.Split(req.ID, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'user/name', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	token, diags := getPersonalAccessToken(ctx, r.client, parts[0], parts[1])
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	state := personalAccessTokenResourceModel{
+		User:  types.StringValue(parts[0]),
+		Token: types.StringNull(),
+	}
+	diags = state.from(ctx, token)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	diags = resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
 }
 
 // NewpersonalAccessTokenResource is a helper function to simplify the provider implementation.

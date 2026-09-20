@@ -148,6 +148,15 @@ resource "forgejo_personal_access_token" "test" {
 					})),
 				},
 			},
+			// Import existing token metadata without attempting to recover the
+			// write-only token value returned only at creation time.
+			{
+				ResourceName:            "forgejo_personal_access_token.test",
+				ImportState:             true,
+				ImportStateId:           "test_user/tftest1",
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"token"},
+			},
 		},
 	})
 }

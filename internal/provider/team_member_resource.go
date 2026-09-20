@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -18,8 +20,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &teamMemberResource{}
-	_ resource.ResourceWithConfigure = &teamMemberResource{}
+	_ resource.Resource                = &teamMemberResource{}
+	_ resource.ResourceWithConfigure   = &teamMemberResource{}
+	_ resource.ResourceWithImportState = &teamMemberResource{}
 )
 
 // teamMemberResource is the resource implementation.
@@ -175,6 +178,36 @@ func (r *teamMemberResource) Delete(ctx context.Context, req resource.DeleteRequ
 		data.TeamID.ValueInt64(),
 		data.User.ValueString(),
 	)
+	resp.Diagnostics.Append(diags...)
+}
+
+// ImportState reads an existing resource and adds it to Terraform state on success.
+func (r *teamMemberResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	defer un(trace(ctx, "Import team member resource"))
+
+	parts := strings.Split(req.ID, "/")
+	if len(parts) != 2 {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'team_id/user', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	teamID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || teamID <= 0 || parts[1] == "" {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'team_id/user', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	state := teamMemberResourceModel{
+		TeamID: types.Int64Value(teamID),
+		User:   types.StringValue(parts[1]),
+	}
+	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 }
 

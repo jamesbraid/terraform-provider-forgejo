@@ -39,6 +39,16 @@ resource "forgejo_organization" "test" {
 					statecheck.ExpectKnownValue("forgejo_organization.test", tfjsonpath.New("repo_admin_change_team_access"), knownvalue.Bool(true)),
 				},
 			},
+			// Import testing
+			{
+				ResourceName:      "forgejo_organization.test",
+				ImportState:       true,
+				ImportStateId:     "tftest",
+				ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{
+					"repo_admin_change_team_access",
+				},
+			},
 			// Create and Read testing (deuplicate name)
 			{
 				Config: providerConfig + `

@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,8 +21,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &collaboratorResource{}
-	_ resource.ResourceWithConfigure = &collaboratorResource{}
+	_ resource.Resource                = &collaboratorResource{}
+	_ resource.ResourceWithConfigure   = &collaboratorResource{}
+	_ resource.ResourceWithImportState = &collaboratorResource{}
 )
 
 // collaboratorResource is the resource implementation.
@@ -484,6 +487,36 @@ func (r *collaboratorResource) Delete(ctx context.Context, req resource.DeleteRe
 
 		return
 	}
+}
+
+// ImportState reads an existing resource and adds it to Terraform state on success.
+func (r *collaboratorResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	defer un(trace(ctx, "Import collaborator resource"))
+
+	parts := strings.Split(req.ID, "/")
+	if len(parts) != 2 {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'repository_id/user', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	repositoryID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || repositoryID <= 0 || parts[1] == "" {
+		resp.Diagnostics.AddError(
+			"Unable to parse import identifier",
+			fmt.Sprintf("Expected import identifier with format: 'repository_id/user', got: '%s'", req.ID),
+		)
+		return
+	}
+
+	state := collaboratorResourceModel{
+		RepositoryID: types.Int64Value(repositoryID),
+		User:         types.StringValue(parts[1]),
+	}
+	diags := resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
 }
 
 // NewCollaboratorResource is a helper function to simplify the provider implementation.

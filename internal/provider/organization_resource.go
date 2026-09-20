@@ -22,8 +22,9 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &organizationResource{}
-	_ resource.ResourceWithConfigure = &organizationResource{}
+	_ resource.Resource                = &organizationResource{}
+	_ resource.ResourceWithConfigure   = &organizationResource{}
+	_ resource.ResourceWithImportState = &organizationResource{}
 )
 
 // organizationResource is the resource implementation.
@@ -432,6 +433,24 @@ func (r *organizationResource) Delete(ctx context.Context, req resource.DeleteRe
 
 		return
 	}
+}
+
+// ImportState reads an existing resource and adds it to Terraform state on success.
+func (r *organizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	defer un(trace(ctx, "Import organization resource"))
+
+	org, diags := getOrganizationByName(ctx, r.client, req.ID)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var state organizationResourceModel
+	state.from(org)
+	state.RepoAdminChangeTeamAccess = types.BoolValue(true)
+
+	diags = resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
 }
 
 // NewOrganizationResource is a helper function to simplify the provider implementation.

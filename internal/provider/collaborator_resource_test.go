@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
@@ -66,6 +68,14 @@ resource "forgejo_collaborator" "test" {
 					statecheck.ExpectKnownValue("forgejo_collaborator.test", tfjsonpath.New("permission"), knownvalue.StringExact("read")),
 				},
 			},
+			// Import testing
+			{
+				ResourceName:                         "forgejo_collaborator.test",
+				ImportState:                          true,
+				ImportStateIdFunc:                    testAccCollaboratorImportStateID("forgejo_collaborator.test"),
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "repository_id",
+			},
 			// Update and Read testing
 			{
 				Config: providerConfig + `
@@ -123,4 +133,15 @@ resource "forgejo_collaborator" "test" {
 			// Delete testing automatically occurs in TestCase
 		},
 	})
+}
+
+func testAccCollaboratorImportStateID(resourceName string) resource.ImportStateIdFunc {
+	return func(state *terraform.State) (string, error) {
+		resourceState, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return "", fmt.Errorf("resource not found: %s", resourceName)
+		}
+
+		return resourceState.Primary.Attributes["repository_id"] + "/" + resourceState.Primary.Attributes["user"], nil
+	}
 }

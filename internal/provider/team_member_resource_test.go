@@ -1,6 +1,7 @@
 package provider_test
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
@@ -86,6 +88,14 @@ resource "forgejo_team_member" "test" {
 					statecheck.CompareValuePairs("forgejo_team_member.test", tfjsonpath.New("team_id"), "forgejo_team.test", tfjsonpath.New("id"), compare.ValuesSame()),
 					statecheck.CompareValuePairs("forgejo_team_member.test", tfjsonpath.New("user"), "forgejo_user.test", tfjsonpath.New("login"), compare.ValuesSame()),
 				},
+			},
+			// Import testing
+			{
+				ResourceName:                         "forgejo_team_member.test",
+				ImportState:                          true,
+				ImportStateIdFunc:                    testAccTeamMemberImportStateID("forgejo_team_member.test"),
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "team_id",
 			},
 			// Recreate and Read testing (updating any value recreates the resource -- user)
 			{
@@ -175,4 +185,15 @@ resource "forgejo_team_member" "test" {
 			// Delete testing automatically occurs in TestCase
 		},
 	})
+}
+
+func testAccTeamMemberImportStateID(resourceName string) resource.ImportStateIdFunc {
+	return func(state *terraform.State) (string, error) {
+		resourceState, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return "", fmt.Errorf("resource not found: %s", resourceName)
+		}
+
+		return resourceState.Primary.Attributes["team_id"] + "/" + resourceState.Primary.Attributes["user"], nil
+	}
 }

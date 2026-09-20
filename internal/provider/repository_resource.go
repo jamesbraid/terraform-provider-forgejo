@@ -180,6 +180,16 @@ func (m *repositoryResourceModel) from(r *forgejo.Repository) {
 	m.Internal = types.BoolValue(r.Internal)
 	m.MirrorInterval = types.StringValue(r.MirrorInterval)
 	m.MirrorUpdated = types.StringValue(r.MirrorUpdated.Format(time.RFC3339))
+	m.AllowManualMerge = types.BoolValue(r.AllowManualMerge)
+	m.AutodetectManualMerge = types.BoolValue(r.AutodetectManualMerge)
+	m.DefaultDeleteBranchAfterMerge = types.BoolValue(r.DefaultDeleteBranchAfterMerge)
+	m.AllowFastForwardOnly = types.BoolValue(r.AllowFastForwardOnly)
+	m.AllowRebaseUpdate = types.BoolValue(r.AllowRebaseUpdate)
+	m.DefaultAllowMaintainerEdit = types.BoolValue(r.DefaultAllowMaintainerEdit)
+	m.DefaultUpdateStyle = types.StringValue(r.DefaultUpdateStyle)
+	m.EnablePrune = types.BoolValue(r.EnablePrune)
+	m.GloballyEditableWiki = types.BoolValue(r.GloballyEditableWiki)
+	m.WikiBranch = types.StringValue(r.WikiBranch)
 
 	if m.HasPullRequests.ValueBool() {
 		// Only update PR settings if PRs are enabled
@@ -193,10 +203,7 @@ func (m *repositoryResourceModel) from(r *forgejo.Repository) {
 
 	// Intentionally omitted (write-only): IssueLabels, AutoInit, Gitignores,
 	// License, Readme, TrustModel, AuthToken, LFS, LFSEndpoint, Milestones,
-	// Labels, Service, AllowManualMerge, AutodetectManualMerge,
-	// DefaultDeleteBranchAfterMerge, AllowFastForwardOnly, AllowRebaseUpdate,
-	// DefaultAllowMaintainerEdit, DefaultUpdateStyle, EnablePrune,
-	// GloballyEditableWiki, WikiBranch, ArchiveOnDestroy
+	// Labels, Service, ArchiveOnDestroy
 }
 
 // to is a helper function to save Terraform data model into an API struct.
@@ -908,11 +915,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"allow_manual_merge": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Allowed to manually merge pull requests? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -920,11 +925,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"autodetect_manual_merge": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Auto-detect manual pull request merges? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -932,11 +935,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"default_delete_branch_after_merge": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Delete pull request branch after merge by default? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -944,11 +945,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"allow_fast_forward_only_merge": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Allowed to fast-forward-only merge pull requests? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -956,11 +955,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"allow_rebase_update": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Allowed to update pull request branch by rebase? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(true),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -968,11 +965,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"default_allow_maintainer_edit": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Allow maintainer edits on pull requests by default? **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_pull_requests"),
@@ -980,11 +975,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"default_update_style": schema.StringAttribute{
-				// Write-only attribute
 				Description: "Default pull request update style of the repository. **Note**: This setting is only effective if `has_pull_requests` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     stringdefault.StaticString("merge"),
 				Validators: []validator.String{
 					stringvalidator.OneOf(
 						"merge",
@@ -996,11 +989,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"enable_prune": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Remove obsolete remote-tracking references when mirroring? **Note**: This setting is only effective if `mirror` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					boolvalidator.AlsoRequires(path.Expressions{
 						path.MatchRoot("mirror"),
@@ -1011,11 +1002,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"globally_editable_wiki": schema.BoolAttribute{
-				// Write-only attribute
 				Description: "Is the repository wiki globally editable? **Note**: This setting is only effective if `has_wiki` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     booldefault.StaticBool(false),
 				Validators: []validator.Bool{
 					forgejoBoolValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_wiki"),
@@ -1023,11 +1012,9 @@ func (r *repositoryResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"wiki_branch": schema.StringAttribute{
-				// Write-only attribute
 				Description: "Branch used for the repository wiki. **Note**: This setting is only effective if `has_wiki` is `true`.",
 				Optional:    true,
 				Computed:    true,
-				Default:     stringdefault.StaticString(""),
 				Validators: []validator.String{
 					forgejoStringValidator.RequiresTrueIfConfigured(path.Expressions{
 						path.MatchRoot("has_wiki"),
@@ -1920,18 +1907,8 @@ func (r *repositoryResource) ImportState(ctx context.Context, req resource.Impor
 	}
 
 	// Initialize write-only fields to their default values
-	state.AllowManualMerge = types.BoolValue(false)
 	state.ArchiveOnDestroy = types.BoolValue(false)
 	state.AutoInit = types.BoolValue(true)
-	state.AutodetectManualMerge = types.BoolValue(false)
-	state.DefaultDeleteBranchAfterMerge = types.BoolValue(false)
-	state.AllowFastForwardOnly = types.BoolValue(false)
-	state.AllowRebaseUpdate = types.BoolValue(true)
-	state.DefaultAllowMaintainerEdit = types.BoolValue(false)
-	state.DefaultUpdateStyle = types.StringValue("merge")
-	state.EnablePrune = types.BoolValue(false)
-	state.GloballyEditableWiki = types.BoolValue(false)
-	state.WikiBranch = types.StringValue("")
 	state.Gitignores = types.StringValue("")
 	state.IssueLabels = types.StringValue("")
 	state.Labels = types.BoolValue(false)

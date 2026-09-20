@@ -1,15 +1,53 @@
 package provider_test
 
 import (
+	"os"
 	"regexp"
 	"testing"
 
+	"codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/stretchr/testify/require"
 )
+
+func TestAccRepositoryDetectsEditableSettingDrift(t *testing.T) {
+	const config = providerConfig + `
+resource "forgejo_repository" "test" {
+	name                          = "test_repo_editable_setting_drift"
+	allow_fast_forward_only_merge = true
+}`
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config},
+			{
+				PreConfig: func() {
+					client, err := forgejo.NewClient(
+						forgejoTestHost,
+						forgejo.SetToken(os.Getenv("FORGEJO_API_TOKEN")),
+					)
+					require.NoError(t, err)
+					value := false
+					_, _, err = client.EditRepo(
+						forgejoTestUser,
+						"test_repo_editable_setting_drift",
+						forgejo.EditRepoOption{AllowFastForwardOnly: &value},
+					)
+					require.NoError(t, err)
+				},
+				Config:             config,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
 
 func TestAccRepositoryResource(t *testing.T) {
 	resource.Test(t, resource.TestCase{

@@ -9,10 +9,23 @@ import (
 
 	"codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	resourceschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBranchProtectionBranchNameIsDeprecated(t *testing.T) {
+	t.Parallel()
+
+	providerResource := &branchProtectionResource{}
+	var response resource.SchemaResponse
+	providerResource.Schema(t.Context(), resource.SchemaRequest{}, &response)
+	require.False(t, response.Diagnostics.HasError(), "%v", response.Diagnostics)
+	attribute, ok := response.Schema.Attributes["branch_name"].(resourceschema.StringAttribute)
+	require.True(t, ok)
+	require.NotEmpty(t, attribute.DeprecationMessage)
+}
 
 func TestBranchProtectionRuleName(t *testing.T) {
 	t.Parallel()

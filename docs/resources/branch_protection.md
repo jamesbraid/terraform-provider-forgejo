@@ -99,7 +99,7 @@ import {
 - `block_on_official_review_requests` (Boolean) Block merge on official review requests.
 - `block_on_outdated_branch` (Boolean) Block merge if pull request is outdated.
 - `block_on_rejected_reviews` (Boolean) Block merge on rejected reviews.
-- `branch_name` (String) Deprecated alias for rule_name. Existing configurations and state remain supported.
+- `branch_name` (String, Deprecated) Deprecated alias for rule_name. Existing configurations and state remain supported.
 - `dismiss_stale_approvals` (Boolean) Dismiss stale approvals.
 - `enable_approvals_whitelist` (Boolean) Restrict approvals to whitelisted users or teams.
 - `enable_merge_whitelist` (Boolean) Restrict merge to whitelisted users or teams.

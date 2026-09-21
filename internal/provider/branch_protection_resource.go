@@ -37,6 +37,7 @@ var (
 	_ resource.Resource                   = &branchProtectionResource{}
 	_ resource.ResourceWithConfigure      = &branchProtectionResource{}
 	_ resource.ResourceWithImportState    = &branchProtectionResource{}
+	_ resource.ResourceWithModifyPlan     = &branchProtectionResource{}
 	_ resource.ResourceWithValidateConfig = &branchProtectionResource{}
 )
 
@@ -93,9 +94,10 @@ func (r *branchProtectionResource) Schema(ctx context.Context, req resource.Sche
 				},
 			},
 			"branch_name": schema.StringAttribute{
-				Description: "Deprecated alias for rule_name. Existing configurations and state remain supported.",
-				Optional:    true,
-				Computed:    true,
+				Description:        "Deprecated alias for rule_name. Existing configurations and state remain supported.",
+				DeprecationMessage: "Use rule_name instead. branch_name remains available only for compatibility with existing configurations and state.",
+				Optional:           true,
+				Computed:           true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -359,8 +361,17 @@ func (r *branchProtectionResource) ValidateConfig(ctx context.Context, req resou
 		return
 	}
 
-	ruleName := strings.TrimSpace(data.RuleName.ValueString())
-	branchName := strings.TrimSpace(data.BranchName.ValueString())
+	ruleName := data.RuleName.ValueString()
+	branchName := data.BranchName.ValueString()
+	if branchName != strings.TrimSpace(branchName) {
+		resp.Diagnostics.AddAttributeError(path.Root("branch_name"), "Invalid branch protection branch name", "branch_name must not have leading or trailing whitespace.")
+	}
+	if ruleName != strings.TrimSpace(ruleName) {
+		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Invalid branch protection rule name", "rule_name must not have leading or trailing whitespace.")
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	if ruleName == "" && branchName == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Missing branch protection rule name", "Configure rule_name, or retain the deprecated branch_name attribute.")
 		return
@@ -368,6 +379,31 @@ func (r *branchProtectionResource) ValidateConfig(ctx context.Context, req resou
 	if ruleName != "" && branchName != "" && ruleName != branchName {
 		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Conflicting branch protection rule names", "rule_name and the deprecated branch_name alias must match when both are configured.")
 	}
+}
+
+func (r *branchProtectionResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var config branchProtectionResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	var plan branchProtectionResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !config.RuleName.IsNull() && !config.RuleName.IsUnknown() {
+		plan.RuleName = config.RuleName
+		plan.BranchName = config.RuleName
+	} else if !config.BranchName.IsNull() && !config.BranchName.IsUnknown() {
+		plan.RuleName = config.BranchName
+		plan.BranchName = config.BranchName
+	} else {
+		return
+	}
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
 func (m branchProtectionResourceModel) ruleName() string {

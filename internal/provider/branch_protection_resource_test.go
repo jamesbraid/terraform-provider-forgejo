@@ -48,6 +48,8 @@ resource "forgejo_branch_protection" "test" {
 			{Config: config(`rule_name = "release/*"`), PlanOnly: true, ExpectNonEmptyPlan: true},
 			{Config: config(""), PlanOnly: true, ExpectError: regexp.MustCompile("Missing branch protection rule name")},
 			{Config: config("branch_name = \"main\"\n\trule_name = \"release/*\""), PlanOnly: true, ExpectError: regexp.MustCompile("Conflicting branch protection rule names")},
+			{Config: config(`branch_name = " main"`), PlanOnly: true, ExpectError: regexp.MustCompile("Invalid branch protection branch name")},
+			{Config: config(`rule_name = "main "`), PlanOnly: true, ExpectError: regexp.MustCompile("Invalid branch protection rule name")},
 		},
 	})
 }
@@ -124,7 +126,19 @@ resource "forgejo_branch_protection" "test" {
 				},
 			},
 			{
-				Config: config(`rule_name = "main"`),
+				Config: config(`branch_name = "dev"`),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("forgejo_branch_protection.test", plancheck.ResourceActionReplace),
+					},
+				},
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("branch_name"), knownvalue.StringExact("dev")),
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("rule_name"), knownvalue.StringExact("dev")),
+				},
+			},
+			{
+				Config: config(`rule_name = "dev"`),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},

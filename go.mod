@@ -89,4 +89,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 => github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921011306-14cb0a7275c9
+replace codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 => github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921013903-e66be214aad7

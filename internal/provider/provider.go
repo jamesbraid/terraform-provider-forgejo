@@ -289,6 +289,7 @@ func (p *forgejoProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewOrganizationWebhookResource,
 		NewOAuth2ApplicationResource,
 		NewPersonalAccessTokenResource,
+		NewPushMirrorResource,
 		NewRepositoryActionSecretResource,
 		NewRepositoryActionVariableResource,
 		NewRepositoryResource,

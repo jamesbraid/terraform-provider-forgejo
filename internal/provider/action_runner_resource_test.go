@@ -1,10 +1,29 @@
 package provider
 
 import (
+	"context"
 	"testing"
 
+	"codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestActionRunnerStateRefreshPreservesToken(t *testing.T) {
+	t.Parallel()
+
+	model := actionRunnerResourceModel{Token: types.StringValue("one-time-token")}
+	diagnostics := model.from(context.Background(), &forgejo.ActionRunner{
+		ID:     7,
+		UUID:   "runner-uuid",
+		Name:   "runner",
+		Labels: []string{"docker:docker://node:22"},
+		Status: "offline",
+	})
+
+	require.False(t, diagnostics.HasError())
+	require.Equal(t, "one-time-token", model.Token.ValueString())
+}
 
 func TestParseActionRunnerImportID(t *testing.T) {
 	t.Parallel()

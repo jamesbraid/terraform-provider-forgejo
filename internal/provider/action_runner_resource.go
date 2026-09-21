@@ -207,6 +207,16 @@ func (r *actionRunnerResource) Create(ctx context.Context, req resource.CreateRe
 	data.ID = types.Int64Value(registered.ID)
 	data.UUID = types.StringValue(registered.UUID)
 	data.Token = types.StringValue(registered.Token)
+	// Persist the identity and one-time token before refreshing fields that are
+	// only available from the runner endpoint. If that read fails, Terraform can
+	// retry it without registering a second runner or losing the token.
+	data.Labels = types.SetNull(types.StringType)
+	data.Status = types.StringNull()
+	data.Version = types.StringNull()
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	runner, response, err := r.get(data)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to read registered Forgejo Actions runner", forgejoAPIError(response, err))

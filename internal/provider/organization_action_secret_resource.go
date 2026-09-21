@@ -146,7 +146,6 @@ func (r *organizationActionSecretResource) Schema(_ context.Context, _ resource.
 				WriteOnly:   true,
 				Validators: []validator.String{
 					stringvalidator.ExactlyOneOf(path.Expressions{path.MatchRoot("data")}...),
-					stringvalidator.AlsoRequires(path.Expressions{path.MatchRoot("data_wo_version")}...),
 				},
 			},
 			"data_wo_version": schema.Int64Attribute{

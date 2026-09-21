@@ -5,21 +5,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
-	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -53,68 +44,18 @@ type repositoryWebhookResourceModel struct {
 	UpdatedAt           types.String `tfsdk:"updated_at"`
 }
 
-// repositoryWebhookWriteOnlyConfigKeys lists keys within the webhook "config"
-// map that the Forgejo API accepts on create/update but never returns in
-// responses (a GET on the hook only echoes back e.g. "url" and
-// "content_type").
-var repositoryWebhookWriteOnlyConfigKeys = []string{"secret"}
-
-// redactRepositoryWebhookConfig returns a copy of a webhook "config" map with
-// the values of all write-only keys obfuscated, for safe use in log output.
-func redactRepositoryWebhookConfig(config map[string]string) map[string]string {
-	redacted := make(map[string]string, len(config))
-	for k, v := range config {
-		redacted[k] = v
-	}
-	for _, key := range repositoryWebhookWriteOnlyConfigKeys {
-		if v, ok := redacted[key]; ok {
-			redacted[key] = strings.Repeat("*", len(v))
-		}
-	}
-
-	return redacted
-}
-
 // from is a helper function to load an API struct into Terraform data model.
 func (m *repositoryWebhookResourceModel) from(h *forgejo.Hook, ctx context.Context) (diags diag.Diagnostics) {
-	if h == nil {
-		return diags
-	}
-
-	var d diag.Diagnostics
-
-	// The API response never includes write-only config keys (e.g. "secret").
-	// Strip any value it might echo back (e.g. a masked placeholder) and
-	// restore the value from the prior model (the plan on create/update, the
-	// prior state on read), so the applied config matches what was planned.
-	config := make(map[string]string, len(h.Config))
-	for k, v := range h.Config {
-		config[k] = v
-	}
-	var priorConfig map[string]string
-	if !m.Config.IsNull() && !m.Config.IsUnknown() {
-		d = m.Config.ElementsAs(ctx, &priorConfig, false)
-		diags.Append(d...)
-	}
-	for _, key := range repositoryWebhookWriteOnlyConfigKeys {
-		delete(config, key)
-		if v, ok := priorConfig[key]; ok {
-			config[key] = v
-		}
-	}
-
-	m.WebhookID = types.Int64Value(h.ID)
-	m.Active = types.BoolValue(h.Active)
-	m.Config, d = types.MapValueFrom(ctx, types.StringType, config)
-	diags.Append(d...)
-	m.CreatedAt = types.StringValue(h.Created.Format(time.RFC3339))
-	m.Events, d = types.SetValueFrom(ctx, types.StringType, h.Events)
-	diags.Append(d...)
-	m.Type = types.StringValue(h.Type)
-	m.UpdatedAt = types.StringValue(h.Updated.Format(time.RFC3339))
-
-	// Intentionally omitted (write-only): AuthorizationHeader, BranchFilter
-
+	values, diags := webhookValuesFromHook(ctx, webhookModelValues{
+		WebhookID: m.WebhookID, Active: m.Active,
+		AuthorizationHeader: m.AuthorizationHeader, BranchFilter: m.BranchFilter,
+		Config: m.Config, CreatedAt: m.CreatedAt, Events: m.Events,
+		Type: m.Type, UpdatedAt: m.UpdatedAt,
+	}, h)
+	m.WebhookID, m.Active = values.WebhookID, values.Active
+	m.AuthorizationHeader, m.BranchFilter = values.AuthorizationHeader, values.BranchFilter
+	m.Config, m.CreatedAt, m.Events = values.Config, values.CreatedAt, values.Events
+	m.Type, m.UpdatedAt = values.Type, values.UpdatedAt
 	return diags
 }
 
@@ -124,16 +65,13 @@ func (m *repositoryWebhookResourceModel) to(o *forgejo.EditHookOption, ctx conte
 		return diags
 	}
 
-	var d diag.Diagnostics
-
-	o.Active = m.Active.ValueBoolPointer()
-	o.AuthorizationHeader = m.AuthorizationHeader.ValueString()
-	o.BranchFilter = m.BranchFilter.ValueString()
-	d = m.Config.ElementsAs(ctx, &o.Config, false)
-	diags.Append(d...)
-	d = m.Events.ElementsAs(ctx, &o.Events, false)
-	diags.Append(d...)
-
+	values := webhookModelValues{
+		Active: m.Active, AuthorizationHeader: m.AuthorizationHeader,
+		BranchFilter: m.BranchFilter, Config: m.Config, Events: m.Events,
+	}
+	var result forgejo.EditHookOption
+	result, diags = values.editOption(ctx)
+	*o = result
 	return diags
 }
 
@@ -144,126 +82,17 @@ func (r *repositoryWebhookResource) Metadata(_ context.Context, req resource.Met
 
 // Schema defines the schema for the resource.
 func (r *repositoryWebhookResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	attributes := webhookResourceAttributes()
+	attributes["repository_id"] = schema.Int64Attribute{
+		Description: "Numeric identifier of the repository. Changing this forces a new resource to be created.",
+		Required:    true,
+		PlanModifiers: []planmodifier.Int64{
+			int64planmodifier.RequiresReplace(),
+		},
+	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Forgejo repository webhook resource.",
-
-		Attributes: map[string]schema.Attribute{
-			"repository_id": schema.Int64Attribute{
-				Description: "Numeric identifier of the repository. Changing this forces a new resource to be created.",
-				Required:    true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplace(),
-				},
-			},
-			"webhook_id": schema.Int64Attribute{
-				Description: "Numeric identifier of the webhook.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
-				},
-			},
-			"active": schema.BoolAttribute{
-				Description: "Boolean indicating if the webhook is active.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-			},
-			"authorization_header": schema.StringAttribute{
-				// Write-only attribute
-				Description: "Authorization header to send to the target.",
-				Optional:    true,
-				Sensitive:   true,
-			},
-			"branch_filter": schema.StringAttribute{
-				// Write-only attribute
-				Description: "List of allowed branches for push, branch creation and branch deletion events, specified as glob pattern. If empty or *, events for all branches are reported.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(""),
-			},
-			"config": schema.MapAttribute{
-				Description: "Map of configuration settings, e.g. \"content_type\" and \"url\". The \"secret\" key is write-only: Forgejo accepts it on create/update but never returns it, so the provider preserves the configured value instead of reading it back, and cannot detect changes made outside of Terraform.",
-				ElementType: types.StringType,
-				Required:    true,
-			},
-			"created_at": schema.StringAttribute{
-				Description: "Time at which the webhook was created.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"events": schema.SetAttribute{
-				Description: "List of events which trigger the webhook.",
-				ElementType: types.StringType,
-				Optional:    true,
-				Computed:    true,
-				Default: setdefault.StaticValue(
-					types.SetValueMust(
-						types.StringType,
-						[]attr.Value{
-							types.StringValue("push"),
-						},
-					),
-				),
-				Validators: []validator.Set{
-					setvalidator.ValueStringsAre(
-						stringvalidator.OneOf(
-							"action_run_failure",
-							"action_run_recover",
-							"action_run_success",
-							"create",
-							"delete",
-							"fork",
-							"issue_assign",
-							"issue_comment",
-							"issue_label",
-							"issue_milestone",
-							"issues",
-							"package",
-							"pull_request",
-							"pull_request_assign",
-							"pull_request_comment",
-							"pull_request_label",
-							"pull_request_milestone",
-							"pull_request_review_approved",
-							"pull_request_review_comment",
-							"pull_request_review_rejected",
-							"pull_request_review_request",
-							"pull_request_sync",
-							"push",
-							"release",
-							"repository",
-							"wiki",
-						),
-					),
-				},
-			},
-			"type": schema.StringAttribute{
-				Description: "Type of webhook. Changing this forces a new resource to be created.",
-				Required:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-				Validators: []validator.String{
-					stringvalidator.OneOf(
-						"dingtalk",
-						"discord",
-						"feishu",
-						"forgejo",
-						"gitea",
-						"gogs",
-						"msteams",
-						"slack",
-						"telegram",
-					),
-				},
-			},
-			"updated_at": schema.StringAttribute{
-				Description: "Time at which the webhook was updated.",
-				Computed:    true,
-			},
-		},
+		Attributes:          attributes,
 	}
 }
 
@@ -337,7 +166,7 @@ func (r *repositoryWebhookResource) Create(ctx context.Context, req resource.Cre
 		"active":               data.Active.ValueBool(),
 		"authorization_header": strings.Repeat("*", len(data.AuthorizationHeader.ValueString())),
 		"branch_filter":        data.BranchFilter.ValueString(),
-		"config":               redactRepositoryWebhookConfig(config),
+		"config":               redactWebhookConfig(config),
 		"events":               events,
 		"repo":                 repo.Name.ValueString(),
 		"type":                 data.Type.ValueString(),
@@ -543,7 +372,7 @@ func (r *repositoryWebhookResource) Update(ctx context.Context, req resource.Upd
 		"active":               data.Active.ValueBool(),
 		"authorization_header": strings.Repeat("*", len(data.AuthorizationHeader.ValueString())),
 		"branch_filter":        data.BranchFilter.ValueString(),
-		"config":               redactRepositoryWebhookConfig(config),
+		"config":               redactWebhookConfig(config),
 		"events":               events,
 		"owner":                repo.Owner.ValueString(),
 		"repo":                 repo.Name.ValueString(),

@@ -58,7 +58,7 @@ import {
 
 ### Required
 
-- `config` (Map of String) Map of configuration settings, e.g. "content_type" and "url". The "secret" key is write-only: Forgejo accepts it on create/update but never returns it, so the provider preserves the configured value instead of reading it back, and cannot detect changes made outside of Terraform.
+- `config` (Map of String) Webhook configuration. The secret key is write-only and cannot be checked for out-of-band changes.
 - `repository_id` (Number) Numeric identifier of the repository. Changing this forces a new resource to be created.
 - `type` (String) Type of webhook. Changing this forces a new resource to be created.
 
@@ -66,8 +66,8 @@ import {
 
 - `active` (Boolean) Boolean indicating if the webhook is active.
 - `authorization_header` (String, Sensitive) Authorization header to send to the target.
-- `branch_filter` (String) List of allowed branches for push, branch creation and branch deletion events, specified as glob pattern. If empty or *, events for all branches are reported.
-- `events` (Set of String) List of events which trigger the webhook.
+- `branch_filter` (String) Allowed branches for push, branch creation, and branch deletion events, specified as a glob pattern.
+- `events` (Set of String) Events which trigger the webhook.
 
 ### Read-Only
 

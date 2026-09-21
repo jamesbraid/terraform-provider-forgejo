@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,4 +20,11 @@ func TestPushMirrorSchemaUsesSensitivePassword(t *testing.T) {
 	require.True(t, password.Required)
 	require.True(t, password.Sensitive)
 	require.False(t, password.WriteOnly)
+}
+
+func TestPushMirrorAdoptionUsesImportedRemoteName(t *testing.T) {
+	state := pushMirrorResourceModel{RemoteName: types.StringValue("remote_mirror_existing")}
+	plan := pushMirrorResourceModel{RemoteName: types.StringUnknown()}
+
+	require.Equal(t, "remote_mirror_existing", pushMirrorAdoptionRemoteName(state, plan))
 }

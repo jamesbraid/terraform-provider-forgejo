@@ -70,6 +70,13 @@ func requireStringReplaceAfterAdoption(_ context.Context, req planmodifier.Strin
 	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown()
 }
 
+func pushMirrorAdoptionRemoteName(state, plan pushMirrorResourceModel) string {
+	if !plan.RemoteName.IsNull() && !plan.RemoteName.IsUnknown() {
+		return plan.RemoteName.ValueString()
+	}
+	return state.RemoteName.ValueString()
+}
+
 func (r *pushMirrorResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an explicitly declared Forgejo repository push mirror. Forgejo cannot edit push mirrors, so changes replace the mirror.",
@@ -191,7 +198,7 @@ func (r *pushMirrorResource) Update(ctx context.Context, req resource.UpdateRequ
 		resp.Diagnostics.AddError("Unable to update Forgejo push mirror", "Forgejo does not support editing push mirrors; this change should have planned a replacement")
 		return
 	}
-	mirror, response, err := r.client.GetPushMirror(data.Owner.ValueString(), data.Repository.ValueString(), data.RemoteName.ValueString())
+	mirror, response, err := r.client.GetPushMirror(data.Owner.ValueString(), data.Repository.ValueString(), pushMirrorAdoptionRemoteName(state, data))
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to read Forgejo push mirror during adoption", forgejoAPIError(response, err))
 		return

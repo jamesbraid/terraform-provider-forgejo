@@ -282,6 +282,7 @@ func (p *forgejoProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewCollaboratorResource,
 		NewDeployKeyResource,
 		NewGPGKeyResource,
+		NewOrganizationAvatarResource,
 		NewOrganizationActionSecretResource,
 		NewOrganizationActionVariableResource,
 		NewOrganizationResource,
@@ -296,6 +297,7 @@ func (p *forgejoProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewBranchProtectionResource,
 		NewTeamResource,
 		NewTeamMemberResource,
+		NewUserAvatarResource,
 		NewUserResource,
 		NewUserWebhookResource,
 	}

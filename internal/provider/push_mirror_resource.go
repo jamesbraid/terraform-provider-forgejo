@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -28,21 +26,20 @@ type pushMirrorResource struct {
 }
 
 type pushMirrorResourceModel struct {
-	ID                    types.String `tfsdk:"id"`
-	Owner                 types.String `tfsdk:"owner"`
-	Repository            types.String `tfsdk:"repository"`
-	RemoteName            types.String `tfsdk:"remote_name"`
-	RemoteAddress         types.String `tfsdk:"remote_address"`
-	RemoteUsername        types.String `tfsdk:"remote_username"`
-	RemotePasswordWO      types.String `tfsdk:"remote_password_wo"`
-	RemotePasswordVersion types.Int64  `tfsdk:"remote_password_wo_version"`
-	BranchFilter          types.String `tfsdk:"branch_filter"`
-	Interval              types.String `tfsdk:"interval"`
-	SyncOnCommit          types.Bool   `tfsdk:"sync_on_commit"`
-	PublicKey             types.String `tfsdk:"public_key"`
-	Created               types.String `tfsdk:"created"`
-	LastUpdate            types.String `tfsdk:"last_update"`
-	LastError             types.String `tfsdk:"last_error"`
+	ID             types.String `tfsdk:"id"`
+	Owner          types.String `tfsdk:"owner"`
+	Repository     types.String `tfsdk:"repository"`
+	RemoteName     types.String `tfsdk:"remote_name"`
+	RemoteAddress  types.String `tfsdk:"remote_address"`
+	RemoteUsername types.String `tfsdk:"remote_username"`
+	RemotePassword types.String `tfsdk:"remote_password"`
+	BranchFilter   types.String `tfsdk:"branch_filter"`
+	Interval       types.String `tfsdk:"interval"`
+	SyncOnCommit   types.Bool   `tfsdk:"sync_on_commit"`
+	PublicKey      types.String `tfsdk:"public_key"`
+	Created        types.String `tfsdk:"created"`
+	LastUpdate     types.String `tfsdk:"last_update"`
+	LastError      types.String `tfsdk:"last_error"`
 }
 
 func (m *pushMirrorResourceModel) from(mirror *forgejo.PushMirrorResponse) {
@@ -70,10 +67,6 @@ func pushMirrorReplace() []planmodifier.String {
 }
 
 func requireStringReplaceAfterAdoption(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
-	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown()
-}
-
-func requireInt64ReplaceAfterAdoption(_ context.Context, req planmodifier.Int64Request, resp *int64planmodifier.RequiresReplaceIfFuncResponse) {
 	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown()
 }
 
@@ -108,17 +101,12 @@ func (r *pushMirrorResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					stringplanmodifier.RequiresReplaceIf(requireStringReplaceAfterAdoption, "Replace after the imported credential identity has been recorded.", "Replace after the imported credential identity has been recorded."),
 				},
 			},
-			"remote_password_wo": schema.StringAttribute{
-				Description: "Write-only password or token used to authenticate to the destination.",
+			"remote_password": schema.StringAttribute{
+				Description: "Password or token used to authenticate to the destination. Forgejo does not return this value, so it is retained in state.",
 				Required:    true,
 				Sensitive:   true,
-				WriteOnly:   true,
-			},
-			"remote_password_wo_version": schema.Int64Attribute{
-				Description: "Version of remote_password_wo. Changing it replaces the push mirror.",
-				Required:    true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplaceIf(requireInt64ReplaceAfterAdoption, "Replace after the imported credential revision has been recorded.", "Replace after the imported credential revision has been recorded."),
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplaceIf(requireStringReplaceAfterAdoption, "Replace after the imported credential has been recorded.", "Replace after the imported credential has been recorded."),
 				},
 			},
 			"branch_filter": schema.StringAttribute{
@@ -156,15 +144,10 @@ func (r *pushMirrorResource) Create(ctx context.Context, req resource.CreateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	var password types.String
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("remote_password_wo"), &password)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 	mirror, response, err := r.client.CreatePushMirror(data.Owner.ValueString(), data.Repository.ValueString(), forgejo.CreatePushMirrorOption{
 		RemoteAddress:  data.RemoteAddress.ValueString(),
 		RemoteUsername: data.RemoteUsername.ValueString(),
-		RemotePassword: password.ValueString(),
+		RemotePassword: data.RemotePassword.ValueString(),
 		BranchFilter:   data.BranchFilter.ValueString(),
 		Interval:       data.Interval.ValueString(),
 		SyncONCommit:   data.SyncOnCommit.ValueBool(),
@@ -204,7 +187,7 @@ func (r *pushMirrorResource) Update(ctx context.Context, req resource.UpdateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if !state.RemoteUsername.IsNull() || !state.RemotePasswordVersion.IsNull() {
+	if !state.RemoteUsername.IsNull() || !state.RemotePassword.IsNull() {
 		resp.Diagnostics.AddError("Unable to update Forgejo push mirror", "Forgejo does not support editing push mirrors; this change should have planned a replacement")
 		return
 	}
@@ -241,10 +224,10 @@ func (r *pushMirrorResource) ImportState(ctx context.Context, req resource.Impor
 		return
 	}
 	data := pushMirrorResourceModel{
-		Owner:                 types.StringValue(parts[0]),
-		Repository:            types.StringValue(parts[1]),
-		RemoteUsername:        types.StringNull(),
-		RemotePasswordVersion: types.Int64Null(),
+		Owner:          types.StringValue(parts[0]),
+		Repository:     types.StringValue(parts[1]),
+		RemoteUsername: types.StringNull(),
+		RemotePassword: types.StringNull(),
 	}
 	data.from(mirror)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

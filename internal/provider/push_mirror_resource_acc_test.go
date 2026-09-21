@@ -31,7 +31,7 @@ func TestAccPushMirrorResource(t *testing.T) {
 				ImportState:             true,
 				ImportStateIdFunc:       pushMirrorImportStateID("forgejo_push_mirror.test"),
 				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"remote_username", "remote_password_wo_version"},
+				ImportStateVerifyIgnore: []string{"remote_username", "remote_password"},
 			},
 			{
 				Config: pushMirrorConfig(),
@@ -64,16 +64,15 @@ resource "forgejo_repository" "push_mirror_source" {
 }
 
 resource "forgejo_push_mirror" "test" {
-  provider                   = forgejo.basicAuth
-  owner                      = %q
-  repository                 = forgejo_repository.push_mirror_source.name
-  remote_address             = "https://example.com/forgejo-push-mirror-test.git"
-  remote_username            = ""
-  remote_password_wo         = ""
-  remote_password_wo_version = 1
-  branch_filter              = "main"
-  interval                   = "0s"
-  sync_on_commit             = false
+  provider        = forgejo.basicAuth
+  owner           = %q
+  repository      = forgejo_repository.push_mirror_source.name
+  remote_address  = "https://example.com/forgejo-push-mirror-test.git"
+  remote_username = ""
+  remote_password = ""
+  branch_filter   = "main"
+  interval        = "0s"
+  sync_on_commit  = false
 }
 `, forgejoTestUser)
 }

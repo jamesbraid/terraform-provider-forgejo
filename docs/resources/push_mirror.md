@@ -21,8 +21,7 @@ Manages an explicitly declared Forgejo repository push mirror. Forgejo cannot ed
 - `interval` (String) Periodic synchronization interval, such as 1h0m0s. Use 0s for manual mirrors.
 - `owner` (String) Repository owner.
 - `remote_address` (String) Destination repository URL. Forgejo returns this URL without credentials.
-- `remote_password_wo` (String, Sensitive) Write-only password or token used to authenticate to the destination.
-- `remote_password_wo_version` (Number) Version of remote_password_wo. Changing it replaces the push mirror.
+- `remote_password` (String, Sensitive) Password or token used to authenticate to the destination. Forgejo does not return this value, so it is retained in state.
 - `remote_username` (String) Username used to authenticate to the destination.
 - `repository` (String) Repository name.
 - `sync_on_commit` (Boolean) Whether Forgejo synchronizes the mirror after repository pushes.

@@ -7,7 +7,9 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
@@ -24,8 +26,34 @@ func TestAccPushMirrorResource(t *testing.T) {
 					statecheck.ExpectKnownValue("forgejo_push_mirror.test", tfjsonpath.New("sync_on_commit"), knownvalue.Bool(false)),
 				},
 			},
+			{
+				ResourceName:            "forgejo_push_mirror.test",
+				ImportState:             true,
+				ImportStateIdFunc:       pushMirrorImportStateID("forgejo_push_mirror.test"),
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"remote_username", "remote_password_wo_version"},
+			},
+			{
+				Config: pushMirrorConfig(),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectEmptyPlan(),
+					},
+				},
+			},
 		},
 	})
+}
+
+func pushMirrorImportStateID(resourceName string) resource.ImportStateIdFunc {
+	return func(state *terraform.State) (string, error) {
+		mirror, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return "", fmt.Errorf("resource not found: %s", resourceName)
+		}
+		attributes := mirror.Primary.Attributes
+		return attributes["owner"] + "/" + attributes["repository"] + "/" + attributes["remote_name"], nil
+	}
 }
 
 func pushMirrorConfig() string {

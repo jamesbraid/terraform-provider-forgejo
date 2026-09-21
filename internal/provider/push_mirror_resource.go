@@ -69,6 +69,14 @@ func pushMirrorReplace() []planmodifier.String {
 	return []planmodifier.String{stringplanmodifier.RequiresReplace()}
 }
 
+func requireStringReplaceAfterAdoption(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown()
+}
+
+func requireInt64ReplaceAfterAdoption(_ context.Context, req planmodifier.Int64Request, resp *int64planmodifier.RequiresReplaceIfFuncResponse) {
+	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown()
+}
+
 func (r *pushMirrorResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an explicitly declared Forgejo repository push mirror. Forgejo cannot edit push mirrors, so changes replace the mirror.",
@@ -94,9 +102,11 @@ func (r *pushMirrorResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: pushMirrorReplace(),
 			},
 			"remote_username": schema.StringAttribute{
-				Description:   "Username used to authenticate to the destination.",
-				Required:      true,
-				PlanModifiers: pushMirrorReplace(),
+				Description: "Username used to authenticate to the destination.",
+				Required:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplaceIf(requireStringReplaceAfterAdoption, "Replace after the imported credential identity has been recorded.", "Replace after the imported credential identity has been recorded."),
+				},
 			},
 			"remote_password_wo": schema.StringAttribute{
 				Description: "Write-only password or token used to authenticate to the destination.",
@@ -108,7 +118,7 @@ func (r *pushMirrorResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Version of remote_password_wo. Changing it replaces the push mirror.",
 				Required:    true,
 				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplace(),
+					int64planmodifier.RequiresReplaceIf(requireInt64ReplaceAfterAdoption, "Replace after the imported credential revision has been recorded.", "Replace after the imported credential revision has been recorded."),
 				},
 			},
 			"branch_filter": schema.StringAttribute{
@@ -186,8 +196,25 @@ func (r *pushMirrorResource) Read(ctx context.Context, req resource.ReadRequest,
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *pushMirrorResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
-	// Every configurable push-mirror field requires replacement.
+func (r *pushMirrorResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var state pushMirrorResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	var data pushMirrorResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !state.RemoteUsername.IsNull() || !state.RemotePasswordVersion.IsNull() {
+		resp.Diagnostics.AddError("Unable to update Forgejo push mirror", "Forgejo does not support editing push mirrors; this change should have planned a replacement")
+		return
+	}
+	mirror, response, err := r.client.GetPushMirror(data.Owner.ValueString(), data.Repository.ValueString(), data.RemoteName.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to read Forgejo push mirror during adoption", forgejoAPIError(response, err))
+		return
+	}
+	data.from(mirror)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *pushMirrorResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -214,8 +241,10 @@ func (r *pushMirrorResource) ImportState(ctx context.Context, req resource.Impor
 		return
 	}
 	data := pushMirrorResourceModel{
-		Owner:      types.StringValue(parts[0]),
-		Repository: types.StringValue(parts[1]),
+		Owner:                 types.StringValue(parts[0]),
+		Repository:            types.StringValue(parts[1]),
+		RemoteUsername:        types.StringNull(),
+		RemotePasswordVersion: types.Int64Null(),
 	}
 	data.from(mirror)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

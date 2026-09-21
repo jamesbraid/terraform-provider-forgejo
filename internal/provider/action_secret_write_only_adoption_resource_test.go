@@ -24,16 +24,16 @@ func TestAccRepositoryActionSecretResourceWriteOnlyAdoption(t *testing.T) {
 	repository, _, err := client.CreateRepo(forgejo.CreateRepoOption{Name: name})
 	require.NoError(t, err)
 	repositoryID := repository.ID
-	_, err = client.CreateRepoActionSecret(forgejoTestUser, name, forgejo.CreateSecretOption{
-		Name: "WRITE_ONLY_ADOPTED",
-		Data: "existing-value",
-	})
-	require.NoError(t, err)
 	t.Cleanup(func() {
 		if _, err := client.DeleteRepo(forgejoTestUser, name); err != nil {
 			t.Errorf("delete adoption repository: %v", err)
 		}
 	})
+	_, err = client.CreateRepoActionSecret(forgejoTestUser, name, forgejo.CreateSecretOption{
+		Name: "WRITE_ONLY_ADOPTED",
+		Data: "existing-value",
+	})
+	require.NoError(t, err)
 
 	config := func(version string) string {
 		return providerConfig + fmt.Sprintf(`
@@ -85,16 +85,16 @@ func TestAccOrganizationActionSecretResourceWriteOnlyAdoption(t *testing.T) {
 	client := actionSecretAdoptionClient(t)
 	_, _, err := client.CreateOrg(forgejo.CreateOrgOption{Name: name})
 	require.NoError(t, err)
-	_, err = client.CreateOrgActionSecret(name, forgejo.CreateSecretOption{
-		Name: "WRITE_ONLY_ADOPTED",
-		Data: "existing-value",
-	})
-	require.NoError(t, err)
 	t.Cleanup(func() {
 		if _, err := client.DeleteOrg(name); err != nil {
 			t.Errorf("delete adoption organization: %v", err)
 		}
 	})
+	_, err = client.CreateOrgActionSecret(name, forgejo.CreateSecretOption{
+		Name: "WRITE_ONLY_ADOPTED",
+		Data: "existing-value",
+	})
+	require.NoError(t, err)
 
 	config := func(version string) string {
 		return providerConfig + fmt.Sprintf(`

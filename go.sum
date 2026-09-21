@@ -144,8 +144,8 @@ github.com/hashicorp/terraform-svchost v0.2.1 h1:ubvrTFw3Q7CsoEaX7V06PtCTKG3wu7G
 github.com/hashicorp/terraform-svchost v0.2.1/go.mod h1:zDMheBLvNzu7Q6o9TBvPqiZToJcSuCLXjAXxBslSky4=
 github.com/hashicorp/yamux v0.1.2 h1:XtB8kyFOyHXYVFnwT5C3+Bdo8gArse7j2AQ0DA0Uey8=
 github.com/hashicorp/yamux v0.1.2/go.mod h1:C+zze2n6e/7wshOZep2A70/aQU6QBRWJO/G6FT1wIns=
-github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921013903-e66be214aad7 h1:zUHCMEErOyJN0xco5+DtSswJSAO10USnbdrAZs9s0hk=
-github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921013903-e66be214aad7/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
+github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921022829-543951549aee h1:ZXnGGYOah8JEUUP7Pt7b82fW8AKAuT9v+RI7dFgwp5M=
+github.com/jamesbraid/forgejo-sdk/forgejo/v3 v3.0.0-20260921022829-543951549aee/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
 github.com/jhump/protoreflect v1.17.0 h1:qOEr613fac2lOuTgWN4tPAtLL7fUSbuJL5X5XumQh94=

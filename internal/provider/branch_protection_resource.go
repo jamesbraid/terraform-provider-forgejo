@@ -357,21 +357,22 @@ func (r *branchProtectionResource) Schema(ctx context.Context, req resource.Sche
 func (r *branchProtectionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var data branchProtectionResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !data.BranchName.IsUnknown() && data.BranchName.ValueString() != strings.TrimSpace(data.BranchName.ValueString()) {
+		resp.Diagnostics.AddAttributeError(path.Root("branch_name"), "Invalid branch protection branch name", "branch_name must not have leading or trailing whitespace.")
+	}
+	if !data.RuleName.IsUnknown() && data.RuleName.ValueString() != strings.TrimSpace(data.RuleName.ValueString()) {
+		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Invalid branch protection rule name", "rule_name must not have leading or trailing whitespace.")
+	}
 	if resp.Diagnostics.HasError() || data.RuleName.IsUnknown() || data.BranchName.IsUnknown() {
 		return
 	}
 
 	ruleName := data.RuleName.ValueString()
 	branchName := data.BranchName.ValueString()
-	if branchName != strings.TrimSpace(branchName) {
-		resp.Diagnostics.AddAttributeError(path.Root("branch_name"), "Invalid branch protection branch name", "branch_name must not have leading or trailing whitespace.")
-	}
-	if ruleName != strings.TrimSpace(ruleName) {
-		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Invalid branch protection rule name", "rule_name must not have leading or trailing whitespace.")
-	}
-	if resp.Diagnostics.HasError() {
-		return
-	}
 	if ruleName == "" && branchName == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Missing branch protection rule name", "Configure rule_name, or retain the deprecated branch_name attribute.")
 		return
@@ -394,10 +395,10 @@ func (r *branchProtectionResource) ModifyPlan(ctx context.Context, req resource.
 		return
 	}
 
-	if !config.RuleName.IsNull() && !config.RuleName.IsUnknown() {
+	if !config.RuleName.IsNull() {
 		plan.RuleName = config.RuleName
 		plan.BranchName = config.RuleName
-	} else if !config.BranchName.IsNull() && !config.BranchName.IsUnknown() {
+	} else if !config.BranchName.IsNull() {
 		plan.RuleName = config.BranchName
 		plan.BranchName = config.BranchName
 	} else {

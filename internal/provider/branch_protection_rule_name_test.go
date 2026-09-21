@@ -27,6 +27,125 @@ func TestBranchProtectionBranchNameIsDeprecated(t *testing.T) {
 	require.NotEmpty(t, attribute.DeprecationMessage)
 }
 
+func TestBranchProtectionModifyPlanPropagatesUnknownAlias(t *testing.T) {
+	t.Parallel()
+
+	providerResource := &branchProtectionResource{}
+	var schemaResponse resource.SchemaResponse
+	providerResource.Schema(t.Context(), resource.SchemaRequest{}, &schemaResponse)
+	require.False(t, schemaResponse.Diagnostics.HasError(), "%v", schemaResponse.Diagnostics)
+
+	for _, test := range []struct {
+		name   string
+		config branchProtectionResourceModel
+		plan   branchProtectionResourceModel
+	}{
+		{
+			name: "legacy alias unknown",
+			config: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.BranchName = types.StringUnknown()
+				return data
+			}(),
+			plan: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.BranchName = types.StringUnknown()
+				data.RuleName = types.StringValue("main")
+				return data
+			}(),
+		},
+		{
+			name: "canonical alias unknown",
+			config: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.RuleName = types.StringUnknown()
+				return data
+			}(),
+			plan: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.RuleName = types.StringUnknown()
+				data.BranchName = types.StringValue("main")
+				return data
+			}(),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configPlan := tfsdk.Plan{Schema: schemaResponse.Schema}
+			require.False(t, configPlan.Set(t.Context(), &test.config).HasError())
+			config := tfsdk.Config{Schema: schemaResponse.Schema, Raw: configPlan.Raw}
+			plan := tfsdk.Plan{Schema: schemaResponse.Schema}
+			require.False(t, plan.Set(t.Context(), &test.plan).HasError())
+			stateData := branchProtectionTestModel()
+			stateData.RepositoryID = types.Int64Value(7)
+			stateData.BranchName = types.StringValue("main")
+			stateData.RuleName = types.StringValue("main")
+			state := tfsdk.State{Schema: schemaResponse.Schema}
+			require.False(t, state.Set(t.Context(), &stateData).HasError())
+
+			response := resource.ModifyPlanResponse{Plan: plan}
+			providerResource.ModifyPlan(t.Context(), resource.ModifyPlanRequest{
+				Config: config,
+				Plan:   plan,
+				State:  state,
+			}, &response)
+
+			require.False(t, response.Diagnostics.HasError(), "%v", response.Diagnostics)
+			var got branchProtectionResourceModel
+			require.False(t, response.Plan.Get(t.Context(), &got).HasError())
+			require.True(t, got.BranchName.IsUnknown())
+			require.True(t, got.RuleName.IsUnknown())
+		})
+	}
+}
+
+func TestBranchProtectionValidateKnownAliasWhitespaceWithUnknownSibling(t *testing.T) {
+	t.Parallel()
+
+	providerResource := &branchProtectionResource{}
+	var schemaResponse resource.SchemaResponse
+	providerResource.Schema(t.Context(), resource.SchemaRequest{}, &schemaResponse)
+	require.False(t, schemaResponse.Diagnostics.HasError(), "%v", schemaResponse.Diagnostics)
+
+	for _, test := range []struct {
+		name string
+		data branchProtectionResourceModel
+	}{
+		{
+			name: "legacy alias known",
+			data: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.BranchName = types.StringValue(" main")
+				data.RuleName = types.StringUnknown()
+				return data
+			}(),
+		},
+		{
+			name: "canonical alias known",
+			data: func() branchProtectionResourceModel {
+				data := branchProtectionTestModel()
+				data.RepositoryID = types.Int64Value(7)
+				data.BranchName = types.StringUnknown()
+				data.RuleName = types.StringValue("main ")
+				return data
+			}(),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configPlan := tfsdk.Plan{Schema: schemaResponse.Schema}
+			require.False(t, configPlan.Set(t.Context(), &test.data).HasError())
+			config := tfsdk.Config{Schema: schemaResponse.Schema, Raw: configPlan.Raw}
+			var response resource.ValidateConfigResponse
+			providerResource.ValidateConfig(t.Context(), resource.ValidateConfigRequest{Config: config}, &response)
+			require.True(t, response.Diagnostics.HasError())
+		})
+	}
+}
+
 func TestBranchProtectionRuleName(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3"
@@ -45,6 +46,9 @@ func TestPersonalAccessTokenResourceReadByID(t *testing.T) {
 				require.Equal(t, http.MethodGet, req.Method)
 				require.Equal(t, "/api/v1/users/test/tokens", req.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
+				var tokens []forgejo.AccessToken
+				require.NoError(t, json.Unmarshal([]byte(test.tokens), &tokens))
+				w.Header().Set("X-Total-Count", strconv.Itoa(len(tokens)))
 				fmt.Fprint(w, test.tokens)
 			})
 			data := personalAccessTokenResourceModel{
@@ -75,21 +79,33 @@ func TestPersonalAccessTokenResourceReadByID(t *testing.T) {
 
 func TestPersonalAccessTokenResourceReadPaginates(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		firstPage  string
-		secondPage string
-		status     int
-		absent     bool
+		name      string
+		pages     []string
+		total     string
+		status    int
+		absent    bool
+		fail      bool
+		wantPages int
 	}{
-		{name: "target on second page", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[{"id":7,"name":"managed","scopes":["all"]}]`},
-		{name: "missing across all pages", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[{"id":9,"name":"other"}]`, absent: true},
-		{name: "empty final page", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[]`, absent: true},
-		{name: "later page forbidden", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusForbidden},
-		{name: "later page missing", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusNotFound},
-		{name: "later page fails after match", firstPage: `[{"id":7,"name":"managed"}]`, status: http.StatusInternalServerError},
+		{name: "server cap below requested limit", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, total: "2", wantPages: 2},
+		{name: "missing across all pages", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":9,"name":"other"}]`}, total: "2", absent: true, wantPages: 2},
+		{name: "empty list with count", total: "0", absent: true, wantPages: 1},
+		{name: "missing count", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, wantPages: 3},
+		{name: "malformed count", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, total: "invalid", wantPages: 3},
+		{name: "negative count", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, total: "-1", wantPages: 3},
+		{name: "overflowed count", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, total: "99999999999999999999999999999", wantPages: 3},
+		{name: "count below returned results", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":7,"name":"managed","scopes":["all"]}]`}, total: "0", wantPages: 3},
+		{name: "empty final page without count", pages: []string{`[{"id":8,"name":"managed"}]`}, absent: true, wantPages: 2},
+		{name: "premature empty page", pages: []string{`[{"id":8,"name":"managed"}]`}, total: "2", fail: true, wantPages: 2},
+		{name: "repeated page", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":8,"name":"managed"}]`}, fail: true, wantPages: 2},
+		{name: "repeated page with count", pages: []string{`[{"id":8,"name":"managed"}]`, `[{"id":8,"name":"managed"}]`}, total: "2", fail: true, wantPages: 2},
+		{name: "later page forbidden", pages: []string{`[{"id":8,"name":"managed"}]`}, total: "2", status: http.StatusForbidden, fail: true, wantPages: 2},
+		{name: "later page missing", pages: []string{`[{"id":8,"name":"managed"}]`}, total: "2", status: http.StatusNotFound, fail: true, wantPages: 2},
+		{name: "later page fails after match", pages: []string{`[{"id":7,"name":"managed"}]`}, total: "2", status: http.StatusInternalServerError, fail: true, wantPages: 2},
+		{name: "later page fails without count", pages: []string{`[{"id":7,"name":"managed"}]`}, status: http.StatusInternalServerError, fail: true, wantPages: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			handler, requests := personalAccessTokenPages(t, test.firstPage, test.secondPage, test.status)
+			handler, requests := personalAccessTokenPages(t, test.pages, test.total, test.status)
 			r, state := personalAccessTokenTestResource(t, handler)
 			data := personalAccessTokenResourceModel{
 				User: types.StringValue("test"), ID: types.Int64Value(7),
@@ -99,9 +115,13 @@ func TestPersonalAccessTokenResourceReadPaginates(t *testing.T) {
 			require.False(t, state.Set(t.Context(), &data).HasError())
 			response := resource.ReadResponse{State: state}
 			r.Read(t.Context(), resource.ReadRequest{State: state}, &response)
-			require.Equal(t, []string{"limit=50&page=1", "limit=50&page=2"}, *requests)
-			require.Equal(t, test.status != 0, response.Diagnostics.HasError(), "%v", response.Diagnostics)
-			if test.status != 0 {
+			var expected []string
+			for page := 1; page <= test.wantPages; page++ {
+				expected = append(expected, fmt.Sprintf("limit=50&page=%d", page))
+			}
+			require.Equal(t, expected, *requests)
+			require.Equal(t, test.fail, response.Diagnostics.HasError(), "%v", response.Diagnostics)
+			if test.fail {
 				require.Equal(t, "Unable to list personal access tokens", response.Diagnostics.Errors()[0].Summary())
 				require.True(t, state.Raw.Equal(response.State.Raw))
 				return
@@ -117,26 +137,30 @@ func TestPersonalAccessTokenResourceReadPaginates(t *testing.T) {
 	}
 }
 
-func personalAccessTokenPages(t *testing.T, first, second string, status int) (http.HandlerFunc, *[]string) {
+func personalAccessTokenPages(t *testing.T, pages []string, total string, status int) (http.HandlerFunc, *[]string) {
 	t.Helper()
 	var requests []string
 	return func(w http.ResponseWriter, req *http.Request) {
 		requests = append(requests, req.URL.RawQuery)
 		w.Header().Set("Content-Type", "application/json")
-		switch req.URL.RawQuery {
-		case "limit=50&page=1":
-			w.Header().Set("Link", "<http://"+req.Host+"/api/v1/users/test/tokens?page=2&limit=50>; rel=\"next\"")
-			fmt.Fprint(w, first)
-		case "limit=50&page=2":
-			if status != 0 {
-				http.Error(w, "cannot list tokens", status)
-				return
-			}
-			fmt.Fprint(w, second)
-		default:
+		if total != "" {
+			w.Header().Set("X-Total-Count", total)
+		}
+		page, err := strconv.Atoi(req.URL.Query().Get("page"))
+		if err != nil || page < 1 || req.URL.Query().Get("limit") != "50" {
 			t.Errorf("unexpected pagination request: %s", req.URL.RawQuery)
 			http.Error(w, "unexpected pagination request", http.StatusBadRequest)
+			return
 		}
+		if page == 2 && status != 0 {
+			http.Error(w, "cannot list tokens", status)
+			return
+		}
+		if page > len(pages) {
+			fmt.Fprint(w, `[]`)
+			return
+		}
+		fmt.Fprint(w, pages[page-1])
 	}, &requests
 }
 
@@ -152,7 +176,7 @@ func TestPersonalAccessTokenResourceImportPaginates(t *testing.T) {
 		{name: "later page fails after match", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusInternalServerError, summary: "Unable to list personal access tokens"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			handler, requests := personalAccessTokenPages(t, test.firstPage, `[{"id":7,"name":"managed","scopes":["all"]}]`, test.status)
+			handler, requests := personalAccessTokenPages(t, []string{test.firstPage, `[{"id":7,"name":"managed","scopes":["all"]}]`}, "2", test.status)
 			r, state := personalAccessTokenTestResource(t, handler)
 			response := resource.ImportStateResponse{State: state}
 			r.ImportState(t.Context(), resource.ImportStateRequest{ID: "test/managed"}, &response)
@@ -210,6 +234,9 @@ func TestPersonalAccessTokenResourceImport(t *testing.T) {
 				require.Equal(t, http.MethodGet, req.Method)
 				require.Equal(t, "/api/v1/users/test/tokens", req.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
+				var tokens []forgejo.AccessToken
+				require.NoError(t, json.Unmarshal([]byte(test.tokens), &tokens))
+				w.Header().Set("X-Total-Count", strconv.Itoa(len(tokens)))
 				fmt.Fprint(w, test.tokens)
 			})
 			response := resource.ImportStateResponse{State: state}
@@ -266,6 +293,7 @@ func TestPersonalAccessTokenResourceCreateAndRefresh(t *testing.T) {
 			require.Equal(t, "managed", options.Name)
 			fmt.Fprint(w, `{"id":7,"name":"managed","sha1":"creation-time-token","token_last_eight":"12345678","scopes":["all"]}`)
 		case http.MethodGet:
+			w.Header().Set("X-Total-Count", "1")
 			fmt.Fprint(w, `[{"id":7,"name":"managed","token_last_eight":"12345678","scopes":["all"]}]`)
 		default:
 			t.Errorf("unexpected method: %s", req.Method)

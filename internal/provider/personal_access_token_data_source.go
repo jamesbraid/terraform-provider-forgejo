@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -175,6 +176,7 @@ func listPersonalAccessTokens(ctx context.Context, client *forgejo.Client, user 
 	})
 
 	var tokens []*forgejo.AccessToken
+	seen := make(map[int64]struct{})
 	page := 1
 	for {
 		pageTokens, res, err := client.ListAccessTokens(
@@ -221,11 +223,33 @@ func listPersonalAccessTokens(ctx context.Context, client *forgejo.Client, user 
 			return nil, diags
 		}
 
-		tokens = append(tokens, pageTokens...)
-		if res == nil || res.NextPage == 0 {
+		// This endpoint returns X-Total-Count without pagination links.
+		// Missing or invalid counts require reading through an empty page.
+		total := -1
+		if res != nil {
+			if count, err := strconv.Atoi(res.Header.Get("X-Total-Count")); err == nil && count >= 0 {
+				total = count
+			}
+		}
+		if len(pageTokens) == 0 {
+			if total > len(tokens) {
+				diags.AddError("Unable to list personal access tokens", fmt.Sprintf("Empty page %d before receiving all %d tokens for user '%s'", page, total, user))
+				return nil, diags
+			}
 			return tokens, diags
 		}
-		page = res.NextPage
+		for _, token := range pageTokens {
+			if _, exists := seen[token.ID]; exists {
+				diags.AddError("Unable to list personal access tokens", fmt.Sprintf("Repeated token ID %d on page %d for user '%s'", token.ID, page, user))
+				return nil, diags
+			}
+			seen[token.ID] = struct{}{}
+		}
+		tokens = append(tokens, pageTokens...)
+		if len(tokens) == total {
+			return tokens, diags
+		}
+		page++
 	}
 }
 

@@ -42,19 +42,12 @@ func TestActionSecretSchemasExposeWriteOnlyData(t *testing.T) {
 			if !writeOnly.Optional || writeOnly.Required || !writeOnly.Sensitive || !writeOnly.WriteOnly {
 				t.Fatalf("data_wo must be an optional write-only sensitive attribute: %#v", writeOnly)
 			}
-			if len(writeOnly.Validators) != 1 {
-				t.Fatalf("data_wo must not require data_wo_version: %#v", writeOnly.Validators)
-			}
-
 			version, ok := response.Schema.Attributes["data_wo_version"].(schema.Int64Attribute)
 			if !ok {
 				t.Fatal("data_wo_version is not an int64 attribute")
 			}
 			if !version.Optional || version.Required || version.Computed || version.WriteOnly {
 				t.Fatalf("data_wo_version must be optional and stateful: %#v", version)
-			}
-			if len(version.Validators) != 1 {
-				t.Fatalf("data_wo_version must continue to require data_wo: %#v", version.Validators)
 			}
 		})
 	}

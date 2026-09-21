@@ -57,10 +57,42 @@ resource "forgejo_organization_action_secret" "write_only" {
 			{
 				ResourceName:                         "forgejo_organization_action_secret.write_only",
 				ImportState:                          true,
+				ImportStatePersist:                   true,
 				ImportStateIdFunc:                    actionSecretImportStateID("forgejo_organization_action_secret.write_only", "organization"),
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "organization",
 				ImportStateVerifyIgnore:              []string{"data_wo_version", "organization_id"},
+			},
+			{
+				Config: providerConfig + `
+resource "forgejo_organization" "write_only" {
+	name = "write-only-secrets"
+}
+resource "forgejo_organization_action_secret" "write_only" {
+	organization = forgejo_organization.write_only.name
+	name         = "WRITE_ONLY_SECRET"
+	data_wo      = "adopted-existing-value"
+}`,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+			{
+				Config: providerConfig + `
+resource "forgejo_organization" "write_only" {
+	name = "write-only-secrets"
+}
+resource "forgejo_organization_action_secret" "write_only" {
+	organization    = forgejo_organization.write_only.name
+	name            = "WRITE_ONLY_SECRET"
+	data_wo         = "published-after-adoption"
+	data_wo_version = 3
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("forgejo_organization_action_secret.write_only", plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.TestCheckResourceAttr("forgejo_organization_action_secret.write_only", "data_wo_version", "3"),
 			},
 		},
 	})

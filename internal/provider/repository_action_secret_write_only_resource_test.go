@@ -73,10 +73,42 @@ resource "forgejo_repository_action_secret" "write_only" {
 			{
 				ResourceName:                         "forgejo_repository_action_secret.write_only",
 				ImportState:                          true,
+				ImportStatePersist:                   true,
 				ImportStateIdFunc:                    actionSecretImportStateID("forgejo_repository_action_secret.write_only", "repository_id"),
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "repository_id",
 				ImportStateVerifyIgnore:              []string{"data_wo_version"},
+			},
+			{
+				Config: providerConfig + `
+resource "forgejo_repository" "write_only" {
+	name = "write_only_secret"
+}
+resource "forgejo_repository_action_secret" "write_only" {
+	repository_id = forgejo_repository.write_only.id
+	name          = "WRITE_ONLY_SECRET"
+	data_wo       = "adopted-existing-value"
+}`,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+			{
+				Config: providerConfig + `
+resource "forgejo_repository" "write_only" {
+	name = "write_only_secret"
+}
+resource "forgejo_repository_action_secret" "write_only" {
+	repository_id   = forgejo_repository.write_only.id
+	name            = "WRITE_ONLY_SECRET"
+	data_wo         = "published-after-adoption"
+	data_wo_version = 3
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("forgejo_repository_action_secret.write_only", plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.TestCheckResourceAttr("forgejo_repository_action_secret.write_only", "data_wo_version", "3"),
 			},
 		},
 	})

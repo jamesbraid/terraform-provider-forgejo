@@ -74,28 +74,100 @@ func TestPersonalAccessTokenResourceReadByID(t *testing.T) {
 }
 
 func TestPersonalAccessTokenResourceReadPaginates(t *testing.T) {
-	r, state := personalAccessTokenTestResource(t, func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if req.URL.Query().Get("page") == "1" {
-			w.Header().Set("Link", "<http://"+req.Host+"/api/v1/users/test/tokens?page=2&limit=50>; rel=\"next\"")
-			fmt.Fprint(w, `[{"id":8,"name":"managed"}]`)
-		} else {
-			fmt.Fprint(w, `[{"id":7,"name":"managed","scopes":["all"]}]`)
-		}
-	})
-	data := personalAccessTokenResourceModel{
-		User: types.StringValue("test"), ID: types.Int64Value(7),
-		Name: types.StringValue("managed"), Token: types.StringValue("creation-time-token"),
-		Scopes: types.SetNull(types.StringType),
+	for _, test := range []struct {
+		name       string
+		firstPage  string
+		secondPage string
+		status     int
+		absent     bool
+	}{
+		{name: "target on second page", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[{"id":7,"name":"managed","scopes":["all"]}]`},
+		{name: "missing across all pages", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[{"id":9,"name":"other"}]`, absent: true},
+		{name: "empty final page", firstPage: `[{"id":8,"name":"managed"}]`, secondPage: `[]`, absent: true},
+		{name: "later page forbidden", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusForbidden},
+		{name: "later page missing", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusNotFound},
+		{name: "later page fails after match", firstPage: `[{"id":7,"name":"managed"}]`, status: http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler, requests := personalAccessTokenPages(t, test.firstPage, test.secondPage, test.status)
+			r, state := personalAccessTokenTestResource(t, handler)
+			data := personalAccessTokenResourceModel{
+				User: types.StringValue("test"), ID: types.Int64Value(7),
+				Name: types.StringValue("managed"), Token: types.StringValue("creation-time-token"),
+				Scopes: types.SetNull(types.StringType),
+			}
+			require.False(t, state.Set(t.Context(), &data).HasError())
+			response := resource.ReadResponse{State: state}
+			r.Read(t.Context(), resource.ReadRequest{State: state}, &response)
+			require.Equal(t, []string{"limit=50&page=1", "limit=50&page=2"}, *requests)
+			require.Equal(t, test.status != 0, response.Diagnostics.HasError(), "%v", response.Diagnostics)
+			if test.status != 0 {
+				require.Equal(t, "Unable to list personal access tokens", response.Diagnostics.Errors()[0].Summary())
+				require.True(t, state.Raw.Equal(response.State.Raw))
+				return
+			}
+			require.Equal(t, test.absent, response.State.Raw.IsNull())
+			if test.absent {
+				return
+			}
+			require.False(t, response.State.Get(t.Context(), &data).HasError())
+			require.Equal(t, int64(7), data.ID.ValueInt64())
+			require.Equal(t, "creation-time-token", data.Token.ValueString())
+		})
 	}
-	require.False(t, state.Set(t.Context(), &data).HasError())
-	response := resource.ReadResponse{State: state}
-	r.Read(t.Context(), resource.ReadRequest{State: state}, &response)
-	require.False(t, response.Diagnostics.HasError(), "%v", response.Diagnostics)
-	require.False(t, response.State.Raw.IsNull())
-	require.False(t, response.State.Get(t.Context(), &data).HasError())
-	require.Equal(t, int64(7), data.ID.ValueInt64())
-	require.Equal(t, "creation-time-token", data.Token.ValueString())
+}
+
+func personalAccessTokenPages(t *testing.T, first, second string, status int) (http.HandlerFunc, *[]string) {
+	t.Helper()
+	var requests []string
+	return func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.RawQuery {
+		case "limit=50&page=1":
+			w.Header().Set("Link", "<http://"+req.Host+"/api/v1/users/test/tokens?page=2&limit=50>; rel=\"next\"")
+			fmt.Fprint(w, first)
+		case "limit=50&page=2":
+			if status != 0 {
+				http.Error(w, "cannot list tokens", status)
+				return
+			}
+			fmt.Fprint(w, second)
+		default:
+			t.Errorf("unexpected pagination request: %s", req.URL.RawQuery)
+			http.Error(w, "unexpected pagination request", http.StatusBadRequest)
+		}
+	}, &requests
+}
+
+func TestPersonalAccessTokenResourceImportPaginates(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		firstPage string
+		status    int
+		summary   string
+	}{
+		{name: "exact name on second page", firstPage: `[{"id":8,"name":"MANAGED"}]`},
+		{name: "duplicate across pages", firstPage: `[{"id":8,"name":"managed"}]`, summary: "Ambiguous personal access token name"},
+		{name: "later page fails after match", firstPage: `[{"id":8,"name":"managed"}]`, status: http.StatusInternalServerError, summary: "Unable to list personal access tokens"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler, requests := personalAccessTokenPages(t, test.firstPage, `[{"id":7,"name":"managed","scopes":["all"]}]`, test.status)
+			r, state := personalAccessTokenTestResource(t, handler)
+			response := resource.ImportStateResponse{State: state}
+			r.ImportState(t.Context(), resource.ImportStateRequest{ID: "test/managed"}, &response)
+			require.Equal(t, []string{"limit=50&page=1", "limit=50&page=2"}, *requests)
+			require.Equal(t, test.summary != "", response.Diagnostics.HasError(), "%v", response.Diagnostics)
+			if test.summary != "" {
+				require.Equal(t, test.summary, response.Diagnostics.Errors()[0].Summary())
+				return
+			}
+			var data personalAccessTokenResourceModel
+			require.False(t, response.State.Get(t.Context(), &data).HasError())
+			require.Equal(t, int64(7), data.ID.ValueInt64())
+			require.True(t, data.Token.IsNull())
+		})
+	}
 }
 
 func TestPersonalAccessTokenResourceReadErrorPreservesState(t *testing.T) {

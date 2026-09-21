@@ -174,51 +174,59 @@ func listPersonalAccessTokens(ctx context.Context, client *forgejo.Client, user 
 		"user": user,
 	})
 
-	// Use Forgejo client to list personal access tokens
-	tokens, res, err := client.ListAccessTokens(
-		user,
-		forgejo.ListAccessTokensOptions{
-			ListOptions: forgejo.ListOptions{
-				Page: -1,
+	var tokens []*forgejo.AccessToken
+	page := 1
+	for {
+		pageTokens, res, err := client.ListAccessTokens(
+			user,
+			forgejo.ListAccessTokensOptions{
+				ListOptions: forgejo.ListOptions{
+					Page:     page,
+					PageSize: 50,
+				},
 			},
-		},
-	)
-	if err != nil {
-		var msg string
-		if res == nil {
-			msg = fmt.Sprintf("Unknown error with nil response: %s", err)
-		} else {
-			tflog.Error(ctx, "Error", map[string]any{
-				"status": res.Status,
-			})
+		)
+		if err != nil {
+			var msg string
+			if res == nil {
+				msg = fmt.Sprintf("Unknown error with nil response: %s", err)
+			} else {
+				tflog.Error(ctx, "Error", map[string]any{
+					"status": res.Status,
+				})
 
-			switch res.StatusCode {
-			case 403:
-				msg = fmt.Sprintf(
-					"Personal access tokens for user '%s' forbidden: %s",
-					user,
-					err,
-				)
-			case 404:
-				msg = fmt.Sprintf(
-					"Personal access tokens for user '%s' not found: %s",
-					user,
-					err,
-				)
-			default:
-				msg = fmt.Sprintf(
-					"Unknown error (status %d): %s",
-					res.StatusCode,
-					err,
-				)
+				switch res.StatusCode {
+				case 403:
+					msg = fmt.Sprintf(
+						"Personal access tokens for user '%s' forbidden: %s",
+						user,
+						err,
+					)
+				case 404:
+					msg = fmt.Sprintf(
+						"Personal access tokens for user '%s' not found: %s",
+						user,
+						err,
+					)
+				default:
+					msg = fmt.Sprintf(
+						"Unknown error (status %d): %s",
+						res.StatusCode,
+						err,
+					)
+				}
 			}
+			diags.AddError("Unable to list personal access tokens", msg)
+
+			return nil, diags
 		}
-		diags.AddError("Unable to list personal access tokens", msg)
 
-		return nil, diags
+		tokens = append(tokens, pageTokens...)
+		if res == nil || res.NextPage == 0 {
+			return tokens, diags
+		}
+		page = res.NextPage
 	}
-
-	return tokens, diags
 }
 
 // NewPersonalAccessTokenDataSource is a helper function to simplify the provider implementation.

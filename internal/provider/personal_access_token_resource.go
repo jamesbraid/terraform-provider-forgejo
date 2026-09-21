@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
@@ -306,23 +307,25 @@ func (r *personalAccessTokenResource) Read(ctx context.Context, req resource.Rea
 	}
 
 	// Use Forgejo client to get personal access token
-	token, found, diags := getPersonalAccessToken(
+	tokens, diags := listPersonalAccessTokens(
 		ctx,
 		r.client,
 		data.User.ValueString(),
-		data.Name.ValueString(),
 	)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if !found {
+	idx := slices.IndexFunc(tokens, func(token *forgejo.AccessToken) bool {
+		return token.ID == data.ID.ValueInt64()
+	})
+	if idx == -1 {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
 	// Map response body to model
-	diags = data.from(ctx, token)
+	diags = data.from(ctx, tokens[idx])
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return

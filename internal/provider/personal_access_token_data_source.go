@@ -3,8 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -147,6 +145,29 @@ func getPersonalAccessToken(
 	user string,
 	tokenName string) (*forgejo.AccessToken, bool, diag.Diagnostics) {
 
+	tokens, diags := listPersonalAccessTokens(ctx, client, user)
+	if diags.HasError() {
+		return nil, false, diags
+	}
+
+	var match *forgejo.AccessToken
+	for _, token := range tokens {
+		if token.Name != tokenName {
+			continue
+		}
+		if match != nil {
+			diags.AddError(
+				"Ambiguous personal access token name",
+				fmt.Sprintf("Multiple personal access tokens with user '%s' and name '%s' found", user, tokenName),
+			)
+			return nil, false, diags
+		}
+		match = token
+	}
+	return match, match != nil, diags
+}
+
+func listPersonalAccessTokens(ctx context.Context, client *forgejo.Client, user string) ([]*forgejo.AccessToken, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	tflog.Info(ctx, "List personal access tokens", map[string]any{
@@ -194,17 +215,10 @@ func getPersonalAccessToken(
 		}
 		diags.AddError("Unable to list personal access tokens", msg)
 
-		return nil, false, diags
+		return nil, diags
 	}
 
-	// Search for personal access token with given name
-	idx := slices.IndexFunc(tokens, func(t *forgejo.AccessToken) bool {
-		return strings.EqualFold(t.Name, tokenName)
-	})
-	if idx == -1 {
-		return nil, false, diags
-	}
-	return tokens[idx], true, diags
+	return tokens, diags
 }
 
 // NewPersonalAccessTokenDataSource is a helper function to simplify the provider implementation.

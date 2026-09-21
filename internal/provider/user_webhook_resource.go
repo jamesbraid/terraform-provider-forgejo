@@ -88,7 +88,7 @@ func (r *userWebhookResource) Create(ctx context.Context, req resource.CreateReq
 	tflog.Info(ctx, "Create user webhook", map[string]any{"config": redactWebhookConfig(opts.Config)})
 	hook, response, err := r.client.CreateMyHook(opts)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to create user webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -110,7 +110,7 @@ func (r *userWebhookResource) Read(ctx context.Context, req resource.ReadRequest
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Unable to read user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read user webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -133,12 +133,12 @@ func (r *userWebhookResource) Update(ctx context.Context, req resource.UpdateReq
 	}
 	response, err := r.client.EditMyHook(data.WebhookID.ValueInt64(), opts)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to update user webhook", forgejoAPIError(response, err))
 		return
 	}
 	hook, response, err := r.client.GetMyHook(data.WebhookID.ValueInt64())
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read user webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -156,7 +156,7 @@ func (r *userWebhookResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 	response, err := r.client.DeleteMyHook(data.WebhookID.ValueInt64())
 	if err != nil && (response == nil || response.StatusCode != 404) {
-		resp.Diagnostics.AddError("Unable to delete user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to delete user webhook", forgejoAPIError(response, err))
 	}
 }
 
@@ -169,7 +169,7 @@ func (r *userWebhookResource) ImportState(ctx context.Context, req resource.Impo
 	}
 	hook, response, err := r.client.GetMyHook(webhookID)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read user webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read user webhook", forgejoAPIError(response, err))
 		return
 	}
 	data := userWebhookResourceModel{

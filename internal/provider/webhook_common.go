@@ -239,7 +239,7 @@ func redactWebhookConfig(config map[string]string) map[string]string {
 	return redacted
 }
 
-func webhookAPIError(response *forgejo.Response, err error) string {
+func forgejoAPIError(response *forgejo.Response, err error) string {
 	if response == nil {
 		return fmt.Sprintf("unknown error with nil response: %s", err)
 	}

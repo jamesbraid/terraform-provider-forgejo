@@ -105,7 +105,7 @@ func (r *organizationWebhookResource) Create(ctx context.Context, req resource.C
 	tflog.Info(ctx, "Create organization webhook", map[string]any{"organization": data.Organization.ValueString(), "config": redactWebhookConfig(opts.Config)})
 	hook, response, err := r.client.CreateOrgHook(data.Organization.ValueString(), opts)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to create organization webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -127,7 +127,7 @@ func (r *organizationWebhookResource) Read(ctx context.Context, req resource.Rea
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Unable to read organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read organization webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -150,12 +150,12 @@ func (r *organizationWebhookResource) Update(ctx context.Context, req resource.U
 	}
 	response, err := r.client.EditOrgHook(data.Organization.ValueString(), data.WebhookID.ValueInt64(), opts)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to update organization webhook", forgejoAPIError(response, err))
 		return
 	}
 	hook, response, err := r.client.GetOrgHook(data.Organization.ValueString(), data.WebhookID.ValueInt64())
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read organization webhook", forgejoAPIError(response, err))
 		return
 	}
 	values, diags := webhookValuesFromHook(ctx, data.values(), hook)
@@ -173,7 +173,7 @@ func (r *organizationWebhookResource) Delete(ctx context.Context, req resource.D
 	}
 	response, err := r.client.DeleteOrgHook(data.Organization.ValueString(), data.WebhookID.ValueInt64())
 	if err != nil && (response == nil || response.StatusCode != 404) {
-		resp.Diagnostics.AddError("Unable to delete organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to delete organization webhook", forgejoAPIError(response, err))
 	}
 }
 
@@ -191,7 +191,7 @@ func (r *organizationWebhookResource) ImportState(ctx context.Context, req resou
 	}
 	hook, response, err := r.client.GetOrgHook(parts[0], webhookID)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read organization webhook", webhookAPIError(response, err))
+		resp.Diagnostics.AddError("Unable to read organization webhook", forgejoAPIError(response, err))
 		return
 	}
 	data := organizationWebhookResourceModel{

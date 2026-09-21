@@ -43,13 +43,13 @@ resource "forgejo_repository" "test_repo" {
 
 # Branch protection with default settings
 resource "forgejo_branch_protection" "defaults" {
-  branch_name   = "main"
+  rule_name     = "main"
   repository_id = forgejo_repository.test_repo.id
 }
 
 # Branch protection with custom settings
 resource "forgejo_branch_protection" "non_defaults" {
-  branch_name   = "main"
+  rule_name     = "main"
   repository_id = forgejo_repository.test_repo.id
 
   block_on_outdated_branch  = true
@@ -78,7 +78,7 @@ resource "forgejo_branch_protection" "non_defaults" {
 }
 
 # Example how to import existing branch protections
-# id follows the format: <owner>/<repo>/<branch>
+# id follows the format: <owner>/<repo>/<rule>, including glob patterns.
 import {
   id = "tfadmin/personal_test_repo/main"
   to = forgejo_branch_protection.defaults
@@ -90,7 +90,6 @@ import {
 
 ### Required
 
-- `branch_name` (String) Name of the branch to protect. Changing this forces a new resource to be created.
 - `repository_id` (Number) Numeric identifier of the repository. Changing this forces a new resource to be created.
 
 ### Optional
@@ -100,6 +99,7 @@ import {
 - `block_on_official_review_requests` (Boolean) Block merge on official review requests.
 - `block_on_outdated_branch` (Boolean) Block merge if pull request is outdated.
 - `block_on_rejected_reviews` (Boolean) Block merge on rejected reviews.
+- `branch_name` (String) Deprecated alias for rule_name. Existing configurations and state remain supported.
 - `dismiss_stale_approvals` (Boolean) Dismiss stale approvals.
 - `enable_approvals_whitelist` (Boolean) Restrict approvals to whitelisted users or teams.
 - `enable_merge_whitelist` (Boolean) Restrict merge to whitelisted users or teams.
@@ -114,6 +114,7 @@ import {
 - `push_whitelist_usernames` (Set of String) Whitelisted users for pushing. **Note**: This setting is only effective if `enable_push_whitelist` is `true`.
 - `require_signed_commits` (Boolean) Require signed commits.
 - `required_approvals` (Number) Number of required approvals.
+- `rule_name` (String) Branch protection rule name or glob pattern. Changing this forces a new resource to be created.
 - `status_check_contexts` (List of String) Status check patterns. **Note**: This setting is only effective if `enable_status_check` is `true`.
 - `unprotected_file_patterns` (String) Unprotected file patterns (separated using semicolon ';').
 
@@ -122,6 +123,6 @@ import {
 Import is supported using the following syntax:
 
 ```shell
-# Import using the repo_owner/repo_name/branch.
+# Import using the repo_owner/repo_name/rule, including glob patterns.
 terraform import forgejo_branch_protection.defaults tfadmin/personal_test_repo/main
 ```

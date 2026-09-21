@@ -1,7 +1,13 @@
 package provider_test
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/compare"
@@ -11,6 +17,129 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
+
+func TestBranchProtectionRuleNameValidation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/api/v1/version" {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"version":"16.0.3"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	config := func(names string) string {
+		return fmt.Sprintf(`
+provider "forgejo" {
+	host      = %q
+	api_token = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+resource "forgejo_branch_protection" "test" {
+	repository_id = 1
+	%s
+}
+`, server.URL, names)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config(`branch_name = "main"`), PlanOnly: true, ExpectNonEmptyPlan: true},
+			{Config: config(`rule_name = "release/*"`), PlanOnly: true, ExpectNonEmptyPlan: true},
+			{Config: config(""), PlanOnly: true, ExpectError: regexp.MustCompile("Missing branch protection rule name")},
+			{Config: config("branch_name = \"main\"\n\trule_name = \"release/*\""), PlanOnly: true, ExpectError: regexp.MustCompile("Conflicting branch protection rule names")},
+		},
+	})
+}
+
+func TestBranchProtectionRuleNameMigration(t *testing.T) {
+	var mutex sync.Mutex
+	rules := map[string]bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/api/v1/version":
+			fmt.Fprint(w, `{"version":"16.0.3"}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/api/v1/repositories/7":
+			fmt.Fprint(w, `{"id":7,"name":"example","owner":{"login":"infra"}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/api/v1/repos/infra/example/branch_protections":
+			var option map[string]any
+			if err := json.NewDecoder(req.Body).Decode(&option); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			rule, _ := option["rule_name"].(string)
+			branch, _ := option["branch_name"].(string)
+			if rule == "" || branch != "" {
+				http.Error(w, "expected rule_name without a legacy branch name", http.StatusUnprocessableEntity)
+				return
+			}
+			mutex.Lock()
+			rules[rule] = true
+			mutex.Unlock()
+			fmt.Fprintf(w, `{"branch_name":%q,"rule_name":%q}`, rule, rule)
+		case strings.HasPrefix(req.URL.Path, "/api/v1/repos/infra/example/branch_protections/"):
+			rule := strings.TrimPrefix(req.URL.Path, "/api/v1/repos/infra/example/branch_protections/")
+			mutex.Lock()
+			exists := rules[rule]
+			if req.Method == http.MethodDelete {
+				delete(rules, rule)
+			}
+			mutex.Unlock()
+			if !exists {
+				http.NotFound(w, req)
+				return
+			}
+			if req.Method == http.MethodDelete {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			fmt.Fprintf(w, `{"branch_name":%q,"rule_name":%q}`, rule, rule)
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	config := func(nameAttribute string) string {
+		return fmt.Sprintf(`
+provider "forgejo" {
+	host      = %q
+	api_token = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+resource "forgejo_branch_protection" "test" {
+	repository_id = 7
+	%s
+}
+`, server.URL, nameAttribute)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config(`branch_name = "main"`),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("branch_name"), knownvalue.StringExact("main")),
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("rule_name"), knownvalue.StringExact("main")),
+				},
+			},
+			{
+				Config: config(`rule_name = "main"`),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
+			{
+				Config: config(`rule_name = "release/*"`),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("forgejo_branch_protection.test", plancheck.ResourceActionReplace),
+					},
+				},
+			},
+		},
+	})
+}
 
 func TestAccBranchProtectionResource1(t *testing.T) {
 	resource.Test(t, resource.TestCase{
@@ -58,6 +187,20 @@ resource "forgejo_branch_protection" "test" {
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("dismiss_stale_approvals"), knownvalue.Bool(false)),
 				},
 			},
+			// Migrate from the deprecated alias to rule_name without replacing the rule.
+			{
+				Config: providerConfig + `
+resource "forgejo_repository" "test" {
+	name = "test_repo_branch_protection"
+}
+resource "forgejo_branch_protection" "test" {
+	rule_name     = "main"
+	repository_id = forgejo_repository.test.id
+}`,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+			},
 			// Create and Read testing (duplicate branch_name)
 			{
 				Config: providerConfig + `
@@ -80,7 +223,7 @@ forbidden: Branch protection already exist`),
 				ResourceName:  "forgejo_branch_protection.test",
 				ImportState:   true,
 				ImportStateId: "invalid",
-				ExpectError:   regexp.MustCompile("Expected import identifier with format: 'owner/repo/branch', got: 'invalid'"),
+				ExpectError:   regexp.MustCompile(`expected import identifier with format 'owner/repo/rule', got "invalid"`),
 			},
 			// Import testing (non-existent repo)
 			{
@@ -130,6 +273,7 @@ resource "forgejo_branch_protection" "test" {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.CompareValuePairs("forgejo_branch_protection.test", tfjsonpath.New("repository_id"), "forgejo_repository.test", tfjsonpath.New("id"), compare.ValuesSame()),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("branch_name"), knownvalue.StringExact("main")),
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("rule_name"), knownvalue.StringExact("main")),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("enable_push"), knownvalue.Bool(true)),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("enable_push_whitelist"), knownvalue.Bool(false)),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("push_whitelist_usernames"), knownvalue.ListSizeExact(0)),
@@ -451,7 +595,7 @@ resource "forgejo_repository" "test" {
 	name = "test_repo_branch_protection"
 }
 resource "forgejo_branch_protection" "test" {
-	branch_name   = "release/*"
+	rule_name     = "release/*"
 	repository_id = forgejo_repository.test.id
 }`,
 				ConfigPlanChecks: resource.ConfigPlanChecks{
@@ -462,6 +606,7 @@ resource "forgejo_branch_protection" "test" {
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.CompareValuePairs("forgejo_branch_protection.test", tfjsonpath.New("repository_id"), "forgejo_repository.test", tfjsonpath.New("id"), compare.ValuesSame()),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("branch_name"), knownvalue.StringExact("release/*")),
+					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("rule_name"), knownvalue.StringExact("release/*")),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("enable_push"), knownvalue.Bool(false)),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("enable_push_whitelist"), knownvalue.Bool(false)),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("push_whitelist_usernames"), knownvalue.ListSizeExact(0)),
@@ -484,6 +629,13 @@ resource "forgejo_branch_protection" "test" {
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("block_on_outdated_branch"), knownvalue.Bool(false)),
 					statecheck.ExpectKnownValue("forgejo_branch_protection.test", tfjsonpath.New("dismiss_stale_approvals"), knownvalue.Bool(false)),
 				},
+			},
+			{
+				ResourceName:                         "forgejo_branch_protection.test",
+				ImportState:                          true,
+				ImportStateId:                        forgejoTestUser + "/test_repo_branch_protection/release/*",
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "rule_name",
 			},
 			// Create and Read testing (invalid repo)
 			{

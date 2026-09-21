@@ -34,9 +34,10 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource                = &branchProtectionResource{}
-	_ resource.ResourceWithConfigure   = &branchProtectionResource{}
-	_ resource.ResourceWithImportState = &branchProtectionResource{}
+	_ resource.Resource                   = &branchProtectionResource{}
+	_ resource.ResourceWithConfigure      = &branchProtectionResource{}
+	_ resource.ResourceWithImportState    = &branchProtectionResource{}
+	_ resource.ResourceWithValidateConfig = &branchProtectionResource{}
 )
 
 // branchProtectionResource is the resource implementation.
@@ -49,6 +50,7 @@ type branchProtectionResource struct {
 type branchProtectionResourceModel struct {
 	RepositoryID                  types.Int64  `tfsdk:"repository_id"`
 	BranchName                    types.String `tfsdk:"branch_name"`
+	RuleName                      types.String `tfsdk:"rule_name"`
 	EnablePush                    types.Bool   `tfsdk:"enable_push"`
 	EnablePushWhitelist           types.Bool   `tfsdk:"enable_push_whitelist"`
 	PushWhitelistUsernames        types.Set    `tfsdk:"push_whitelist_usernames"`
@@ -91,8 +93,17 @@ func (r *branchProtectionResource) Schema(ctx context.Context, req resource.Sche
 				},
 			},
 			"branch_name": schema.StringAttribute{
-				Description: "Name of the branch to protect. Changing this forces a new resource to be created.",
-				Required:    true,
+				Description: "Deprecated alias for rule_name. Existing configurations and state remain supported.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"rule_name": schema.StringAttribute{
+				Description: "Branch protection rule name or glob pattern. Changing this forces a new resource to be created.",
+				Optional:    true,
+				Computed:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -341,6 +352,31 @@ func (r *branchProtectionResource) Schema(ctx context.Context, req resource.Sche
 	}
 }
 
+func (r *branchProtectionResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data branchProtectionResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() || data.RuleName.IsUnknown() || data.BranchName.IsUnknown() {
+		return
+	}
+
+	ruleName := strings.TrimSpace(data.RuleName.ValueString())
+	branchName := strings.TrimSpace(data.BranchName.ValueString())
+	if ruleName == "" && branchName == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Missing branch protection rule name", "Configure rule_name, or retain the deprecated branch_name attribute.")
+		return
+	}
+	if ruleName != "" && branchName != "" && ruleName != branchName {
+		resp.Diagnostics.AddAttributeError(path.Root("rule_name"), "Conflicting branch protection rule names", "rule_name and the deprecated branch_name alias must match when both are configured.")
+	}
+}
+
+func (m branchProtectionResourceModel) ruleName() string {
+	if !m.RuleName.IsNull() && !m.RuleName.IsUnknown() && m.RuleName.ValueString() != "" {
+		return m.RuleName.ValueString()
+	}
+	return m.BranchName.ValueString()
+}
+
 // Configure adds the provider configured client to the resource.
 func (r *branchProtectionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
@@ -401,7 +437,7 @@ func (r *branchProtectionResource) Create(ctx context.Context, req resource.Crea
 		"repository_id":                     data.RepositoryID.ValueInt64(),
 		"repository_name":                   repo.Name.ValueString(),
 		"repository_owner":                  repo.Owner.ValueString(),
-		"branch_name":                       data.BranchName.ValueString(),
+		"rule_name":                         data.ruleName(),
 		"enable_push":                       opts.EnablePush,
 		"enable_push_whitelist":             opts.EnablePushWhitelist,
 		"push_whitelist_deploy_keys":        opts.PushWhitelistDeployKeys,
@@ -515,7 +551,7 @@ func (r *branchProtectionResource) Read(ctx context.Context, req resource.ReadRe
 		ctx,
 		repo.Owner.ValueString(),
 		repo.Name.ValueString(),
-		data.BranchName.ValueString(),
+		data.ruleName(),
 	)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -571,7 +607,7 @@ func (r *branchProtectionResource) Update(ctx context.Context, req resource.Upda
 		"repository_id":                     data.RepositoryID.ValueInt64(),
 		"repository_name":                   repo.Name.ValueString(),
 		"repository_owner":                  repo.Owner.ValueString(),
-		"branch_name":                       data.BranchName.ValueString(),
+		"rule_name":                         data.ruleName(),
 		"enable_push":                       opts.EnablePush,
 		"enable_push_whitelist":             opts.EnablePushWhitelist,
 		"push_whitelist_deploy_keys":        opts.PushWhitelistDeployKeys,
@@ -590,7 +626,7 @@ func (r *branchProtectionResource) Update(ctx context.Context, req resource.Upda
 	protection, res, err := r.client.EditBranchProtection(
 		repo.Owner.ValueString(),
 		repo.Name.ValueString(),
-		data.BranchName.ValueString(),
+		data.ruleName(),
 		opts,
 	)
 	if err != nil {
@@ -685,14 +721,14 @@ func (r *branchProtectionResource) Delete(ctx context.Context, req resource.Dele
 		"repository_id":    data.RepositoryID.ValueInt64(),
 		"repository_name":  repo.Name.ValueString(),
 		"repository_owner": repo.Owner.ValueString(),
-		"branch_name":      data.BranchName.ValueString(),
+		"rule_name":        data.ruleName(),
 	})
 
 	// Use Forgejo client to delete branch protection
 	res, err := r.client.DeleteBranchProtection(
 		repo.Owner.ValueString(),
 		repo.Name.ValueString(),
-		data.BranchName.ValueString(),
+		data.ruleName(),
 	)
 	if err != nil {
 		var msg string
@@ -733,26 +769,21 @@ func (r *branchProtectionResource) ImportState(ctx context.Context, req resource
 	var data branchProtectionResourceModel
 
 	// Parse import identifier
-	parts := strings.Split(req.ID, "/")
-	if len(parts) != 3 {
+	owner, repo, ruleName, err := parseBranchProtectionImportID(req.ID)
+	if err != nil {
 		response.Diagnostics.AddError(
 			"Unable to parse import identifier",
-			fmt.Sprintf(
-				"Expected import identifier with format: 'owner/repo/branch', got: '%s'",
-				req.ID,
-			),
+			err.Error(),
 		)
 
 		return
 	}
-	owner, repo, branchName := parts[0], parts[1], parts[2]
-
 	// Use Forgejo client to get branch protection
 	protection, diags := r.getBranchProtection(
 		ctx,
 		owner,
 		repo,
-		branchName,
+		ruleName,
 	)
 	response.Diagnostics.Append(diags...)
 	if response.Diagnostics.HasError() {
@@ -772,7 +803,8 @@ func (r *branchProtectionResource) ImportState(ctx context.Context, req resource
 	}
 
 	// Map response to model
-	data.BranchName = types.StringValue(branchName)
+	data.RuleName = types.StringValue(ruleName)
+	data.BranchName = types.StringValue(ruleName)
 	data.RepositoryID = types.Int64Value(repository.ID)
 	diags = r.from(protection, &data)
 	response.Diagnostics.Append(diags...)
@@ -783,6 +815,14 @@ func (r *branchProtectionResource) ImportState(ctx context.Context, req resource
 	// Save data into Terraform state
 	diags = response.State.Set(ctx, &data)
 	response.Diagnostics.Append(diags...)
+}
+
+func parseBranchProtectionImportID(id string) (string, string, string, error) {
+	parts := strings.SplitN(id, "/", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", fmt.Errorf("expected import identifier with format 'owner/repo/rule', got %q", id)
+	}
+	return parts[0], parts[1], parts[2], nil
 }
 
 // NewBranchProtectionResource is a helper function to simplify the provider implementation.
@@ -844,7 +884,7 @@ func (r *branchProtectionResource) getBranchProtection(ctx context.Context, owne
 // Helper function to convert model to CreateBranchProtectionOption.
 func (r *branchProtectionResource) toCreateOption(ctx context.Context, data *branchProtectionResourceModel) forgejo.CreateBranchProtectionOption {
 	opts := forgejo.CreateBranchProtectionOption{
-		BranchName: data.BranchName.ValueString(),
+		RuleName: data.ruleName(),
 	}
 
 	opts.EnablePush = data.EnablePush.ValueBool()
@@ -968,6 +1008,12 @@ func (r *branchProtectionResource) from(protection *forgejo.BranchProtection, da
 	if protection == nil || data == nil {
 		return diags
 	}
+	ruleName := protection.RuleName
+	if ruleName == "" {
+		ruleName = protection.BranchName
+	}
+	data.RuleName = types.StringValue(ruleName)
+	data.BranchName = types.StringValue(ruleName)
 
 	data.EnablePush = types.BoolValue(protection.EnablePush)
 	data.EnablePushWhitelist = types.BoolValue(protection.EnablePushWhitelist)

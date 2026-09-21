@@ -28,13 +28,13 @@ resource "forgejo_repository" "test_repo" {
 
 # Branch protection with default settings
 resource "forgejo_branch_protection" "defaults" {
-  branch_name   = "main"
+  rule_name     = "main"
   repository_id = forgejo_repository.test_repo.id
 }
 
 # Branch protection with custom settings
 resource "forgejo_branch_protection" "non_defaults" {
-  branch_name   = "main"
+  rule_name     = "main"
   repository_id = forgejo_repository.test_repo.id
 
   block_on_outdated_branch  = true
@@ -63,7 +63,7 @@ resource "forgejo_branch_protection" "non_defaults" {
 }
 
 # Example how to import existing branch protections
-# id follows the format: <owner>/<repo>/<branch>
+# id follows the format: <owner>/<repo>/<rule>, including glob patterns.
 import {
   id = "tfadmin/personal_test_repo/main"
   to = forgejo_branch_protection.defaults
